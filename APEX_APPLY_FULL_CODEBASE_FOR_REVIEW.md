@@ -1,4 +1,11 @@
-# ApexApply Autonomous Job Application Agent — Complete Codebase
+# ApexApply Autonomous Job Application Agent — Complete Codebase Bundle for Claude Review
+
+**Repository**: https://github.com/Manish137/apexapply-job-agent
+**Live VPS**: http://168.231.115.112:8765
+**Test Suite**: 18 passing tests (unittest)
+
+This single document contains the exact, unabridged source code for all 32 configuration, backend, automation, frontend, and test files comprising the ApexApply system.
+---
 
 ## File: `README.md`
 ```markdown
@@ -91,6 +98,7 @@ Open **`http://localhost:8765`** in your browser.
 - **Deterministic & Cloud-Ready**: Provider-agnostic LLM interface supports Gemini Free Tier, local Ollama models, and offline deterministic Mock mode for CI/CD.
 
 ```
+---
 
 ## File: `requirements.txt`
 ```txt
@@ -105,6 +113,36 @@ requests>=2.31.0
 pytest>=8.0.0
 
 ```
+---
+
+## File: `Dockerfile`
+```
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements and install
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application source code and assets
+COPY src/ ./src/
+COPY dashboard/ ./dashboard/
+COPY data/ ./data/
+COPY tests/ ./tests/
+
+EXPOSE 8765
+
+CMD ["python", "-m", "uvicorn", "dashboard.server:app", "--host", "0.0.0.0", "--port", "8765"]
+
+```
+---
 
 ## File: `docker-compose.yml`
 ```yml
@@ -134,6 +172,7 @@ volumes:
   apexapply_data:
 
 ```
+---
 
 ## File: `src/db.py`
 ```python
@@ -499,6 +538,7 @@ def get_cover_letter(job_id: str, db_path: Optional[Path] = None) -> Optional[Di
 
 
 ```
+---
 
 ## File: `src/llm.py`
 ```python
@@ -758,6 +798,7 @@ Job Description:
         return self._tailor_mock(base_resume_text, jd_structured, company, title)
 
 ```
+---
 
 ## File: `src/ingestion.py`
 ```python
@@ -940,6 +981,7 @@ class IngestionService:
         return total_new, total_dup
 
 ```
+---
 
 ## File: `src/extraction.py`
 ```python
@@ -1055,6 +1097,7 @@ class RequirementExtractionEngine:
         return results
 
 ```
+---
 
 ## File: `src/scoring.py`
 ```python
@@ -1203,6 +1246,7 @@ class MatchScorer:
         }
 
 ```
+---
 
 ## File: `src/tailoring.py`
 ```python
@@ -1714,6 +1758,226 @@ shukla.manish80@gmail.com
 
 
 ```
+---
+
+## File: `src/field_taxonomy.py`
+```python
+"""
+Field Taxonomy Service for ApexApply Job Agent
+==============================================
+Manages discovered form fields per platform type and maps them to candidate profile data.
+"""
+
+import json
+from pathlib import Path
+from typing import Dict, List, Any, Optional
+from datetime import datetime
+
+from src.db import get_connection, log_audit
+
+class FieldTaxonomyService:
+    def __init__(self, db_path: Optional[Path] = None):
+        self.db_path = db_path
+
+    def register_field(
+        self,
+        platform_type: str,
+        field_name: str,
+        field_type: str,
+        maps_to_profile_field: Optional[str] = None,
+        is_required: bool = False,
+        sample_values: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """Registers a discovered field into field_taxonomy table."""
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        field_id = f"ft_{platform_type}_{field_name.lower().replace(' ', '_')}"
+
+        cursor.execute("""
+        INSERT OR REPLACE INTO field_taxonomy (
+            id, platform_type, field_name, field_type, maps_to_profile_field,
+            is_required, sample_values, last_seen_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            field_id,
+            platform_type,
+            field_name,
+            field_type,
+            maps_to_profile_field or self.infer_profile_mapping(field_name),
+            1 if is_required else 0,
+            json.dumps(sample_values or []),
+            datetime.utcnow().isoformat()
+        ))
+
+        conn.commit()
+        conn.close()
+
+        return {
+            "id": field_id,
+            "platform_type": platform_type,
+            "field_name": field_name,
+            "field_type": field_type,
+            "maps_to_profile_field": maps_to_profile_field or self.infer_profile_mapping(field_name),
+            "is_required": is_required
+        }
+
+    def infer_profile_mapping(self, field_label: str) -> Optional[str]:
+        """Heuristic mapping from label text to standard profile keys."""
+        l = field_label.lower()
+        if "first name" in l or "given name" in l:
+            return "first_name"
+        elif "last name" in l or "family name" in l or "surname" in l:
+            return "last_name"
+        elif "full name" in l or "name" in l:
+            return "full_name"
+        elif "email" in l:
+            return "email"
+        elif "phone" in l or "mobile" in l:
+            return "phone"
+        elif "linkedin" in l:
+            return "linkedin_url"
+        elif "portfolio" in l or "website" in l or "github" in l:
+            return "portfolio_url"
+        elif "address" in l or "location" in l or "city" in l:
+            return "address"
+        elif "authorized" in l or "sponsorship" in l or "visa" in l or "legal" in l:
+            return "work_authorization"
+        elif "salary" in l or "compensation" in l:
+            return "salary_expectation"
+        elif "years" in l and "experience" in l:
+            return "years_experience"
+        elif "why" in l and ("join" in l or "work" in l or "company" in l or "role" in l):
+            return "why_join"
+        elif "resume" in l or "cv" in l:
+            return "resume_file"
+        return None
+
+    def get_taxonomy_for_platform(self, platform_type: str) -> List[Dict[str, Any]]:
+        """Fetch all known fields for a platform."""
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM field_taxonomy WHERE platform_type = ?", (platform_type,))
+        rows = cursor.fetchall()
+        conn.close()
+        results = []
+        for r in rows:
+            d = dict(r)
+            d["sample_values"] = json.loads(d.get("sample_values") or "[]")
+            results.append(d)
+        return results
+
+    def get_all_taxonomy(self) -> List[Dict[str, Any]]:
+        """Fetch full taxonomy catalog."""
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM field_taxonomy ORDER BY platform_type, field_name")
+        rows = cursor.fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+
+    def seed_standard_taxonomy(self):
+        """Seeds standard taxonomy for Greenhouse, Lever, Workday, LinkedIn."""
+        platforms = ["greenhouse", "lever", "workday", "linkedin", "custom"]
+        standard_fields = [
+            ("First Name", "text", "first_name", True),
+            ("Last Name", "text", "last_name", True),
+            ("Email", "text", "email", True),
+            ("Phone", "text", "phone", True),
+            ("Resume/CV", "file", "resume_file", True),
+            ("LinkedIn Profile", "text", "linkedin_url", True),
+            ("Portfolio / Website", "text", "portfolio_url", False),
+            ("Are you authorized to work in the US?", "dropdown", "work_authorization", True),
+            ("Will you now or in the future require sponsorship?", "dropdown", "work_authorization", True),
+            ("Desired Salary", "text", "salary_expectation", False),
+            ("Why do you want to work here?", "textarea", "why_join", False)
+        ]
+        for p in platforms:
+            for name, ftype, mapping, req in standard_fields:
+                self.register_field(p, name, ftype, mapping, req)
+
+```
+---
+
+## File: `src/mapper.py`
+```python
+"""
+Application Field Mapper for ApexApply Job Agent
+================================================
+Maps candidate profile values and custom question answers to discovered ATS form fields.
+"""
+
+from typing import Dict, List, Any, Optional
+
+class ApplicationFieldMapper:
+    def __init__(self, profile: Dict[str, Any]):
+        self.profile = profile
+
+    def map_fields(self, discovered_fields: List[Dict[str, Any]], tailored_resume_path: str = "") -> Dict[str, Any]:
+        """
+        Maps list of discovered form fields to profile data.
+        Returns:
+            {
+                "mapped_fields": { field_name: value },
+                "missing_required": [ field_name ],
+                "ready_to_fill": bool
+            }
+        """
+        mapped = {}
+        missing_required = []
+
+        first_name = self.profile.get("first_name") or self.profile.get("full_name", "Manish Shukla").split()[0]
+        last_name = self.profile.get("last_name") or self.profile.get("full_name", "Manish Shukla").split()[-1]
+        custom_answers = self.profile.get("custom_field_answers", {})
+
+        for f in discovered_fields:
+            name = f["field_name"]
+            mapping_key = f.get("maps_to_profile_field") or ""
+            is_req = f.get("is_required", False)
+
+            val = None
+            if mapping_key == "first_name":
+                val = first_name
+            elif mapping_key == "last_name":
+                val = last_name
+            elif mapping_key == "full_name":
+                val = self.profile.get("full_name", "Manish Shukla")
+            elif mapping_key == "email":
+                val = self.profile.get("email", "shukla.manish80@gmail.com")
+            elif mapping_key == "phone":
+                val = self.profile.get("phone", "(209) 319-8716")
+            elif mapping_key == "linkedin_url":
+                val = self.profile.get("linkedin_url", "https://linkedin.com/in/mshukla1")
+            elif mapping_key == "portfolio_url":
+                val = self.profile.get("portfolio_url", "https://manishshukla.dev")
+            elif mapping_key == "address":
+                val = self.profile.get("address", "Tracy, CA")
+            elif mapping_key == "work_authorization":
+                val = self.profile.get("work_authorization", "Yes")
+            elif mapping_key == "salary_expectation":
+                val = self.profile.get("salary_expectation", "$180,000 - $220,000")
+            elif mapping_key == "years_experience":
+                val = str(self.profile.get("years_experience", 15))
+            elif mapping_key == "resume_file":
+                val = tailored_resume_path
+            elif mapping_key == "why_join":
+                val = custom_answers.get("why_join", "Passionate about scaling high-impact AI/ML platforms and workflow automations.")
+            else:
+                # Custom answer check
+                val = custom_answers.get(name) or custom_answers.get(name.lower())
+
+            if val is not None:
+                mapped[name] = val
+            elif is_req:
+                missing_required.append(name)
+
+        return {
+            "mapped_fields": mapped,
+            "missing_required": missing_required,
+            "ready_to_fill": len(missing_required) == 0
+        }
+
+```
+---
 
 ## File: `src/executor.py`
 ```python
@@ -1862,6 +2126,7 @@ class ApplicationExecutor:
         }
 
 ```
+---
 
 ## File: `src/orchestrator.py`
 ```python
@@ -2026,6 +2291,54 @@ class JobAgentOrchestrator:
         }
 
 ```
+---
+
+## File: `src/handlers/base_handler.py`
+```python
+"""
+Base Handler Interface for Platform-Specific Form Automation
+============================================================
+All ATS platform handlers (Greenhouse, Lever, Workday, LinkedIn, Generic) implement this interface.
+"""
+
+from abc import ABC, abstractmethod
+from typing import Dict, List, Any, Optional
+from dataclasses import dataclass
+
+@dataclass
+class FillResult:
+    status: str  # DRAFT, PENDING_REVIEW, SUBMITTED, FAILED, CAPTCHA_BLOCKED
+    platform_type: str
+    fields_filled: Dict[str, Any]
+    screenshot_path: Optional[str] = None
+    captcha_detected: bool = False
+    submission_mode: str = "manual_confirm"
+    error_message: Optional[str] = None
+
+class BaseHandler(ABC):
+    def __init__(self, platform_name: str):
+        self.platform_name = platform_name
+
+    @abstractmethod
+    def discover_fields(self, url: str, html_content: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Scans page DOM to discover form fields without submitting."""
+        pass
+
+    @abstractmethod
+    def fill_form(
+        self,
+        job: Dict[str, Any],
+        tailored_resume_path: str,
+        profile: Dict[str, Any],
+        screenshot_path: str,
+        auto_submit: bool = False,
+        html_fixture: Optional[str] = None
+    ) -> FillResult:
+        """Fills form fields, captures screenshot before submit, and submits if auto_submit=True (Mode B)."""
+        pass
+
+```
+---
 
 ## File: `src/handlers/greenhouse.py`
 ```python
@@ -2176,6 +2489,7 @@ class GreenhouseHandler(BaseHandler):
         )
 
 ```
+---
 
 ## File: `src/handlers/lever.py`
 ```python
@@ -2309,6 +2623,124 @@ class LeverHandler(BaseHandler):
         )
 
 ```
+---
+
+## File: `src/handlers/workday.py`
+```python
+"""
+Workday Platform Handler
+========================
+Handles multi-step Workday career portals in Mode A (manual review).
+"""
+
+from pathlib import Path
+from typing import Dict, List, Any, Optional
+
+from src.handlers.base_handler import BaseHandler, FillResult
+from src.mapper import ApplicationFieldMapper
+
+class WorkdayHandler(BaseHandler):
+    def __init__(self):
+        super().__init__("workday")
+
+    def discover_fields(self, url: str, html_content: Optional[str] = None) -> List[Dict[str, Any]]:
+        return [
+            {"field_name": "First Name", "field_type": "text", "maps_to_profile_field": "first_name", "is_required": True},
+            {"field_name": "Last Name", "field_type": "text", "maps_to_profile_field": "last_name", "is_required": True},
+            {"field_name": "Address", "field_type": "text", "maps_to_profile_field": "address", "is_required": True},
+            {"field_name": "Email", "field_type": "text", "maps_to_profile_field": "email", "is_required": True},
+            {"field_name": "Phone", "field_type": "text", "maps_to_profile_field": "phone", "is_required": True},
+            {"field_name": "Resume/CV Document", "field_type": "file", "maps_to_profile_field": "resume_file", "is_required": True},
+            {"field_name": "Work Authorization Status", "field_type": "dropdown", "maps_to_profile_field": "work_authorization", "is_required": True}
+        ]
+
+    def fill_form(
+        self,
+        job: Dict[str, Any],
+        tailored_resume_path: str,
+        profile: Dict[str, Any],
+        screenshot_path: str,
+        auto_submit: bool = False,
+        html_fixture: Optional[str] = None
+    ) -> FillResult:
+        # Workday always enforces Mode A manual confirm for safety
+        discovered = self.discover_fields(job.get("posting_url", ""))
+        mapper = ApplicationFieldMapper(profile)
+        mapping_result = mapper.map_fields(discovered, tailored_resume_path=tailored_resume_path)
+
+        Path(screenshot_path).parent.mkdir(parents=True, exist_ok=True)
+        if not Path(screenshot_path).exists():
+            with open(screenshot_path, "w", encoding="utf-8") as f:
+                f.write(f"[Screenshot Placeholder: Workday multi-step form for {job.get('company')}]")
+
+        return FillResult(
+            status="PENDING_REVIEW",
+            platform_type=self.platform_name,
+            fields_filled=mapping_result["mapped_fields"],
+            screenshot_path=screenshot_path,
+            submission_mode="manual_confirm"
+        )
+
+```
+---
+
+## File: `src/handlers/linkedin_easy_apply.py`
+```python
+"""
+LinkedIn Easy Apply Platform Handler
+====================================
+Automates LinkedIn Easy Apply steps in Mode A (human confirms submit).
+"""
+
+from pathlib import Path
+from typing import Dict, List, Any, Optional
+
+from src.handlers.base_handler import BaseHandler, FillResult
+from src.mapper import ApplicationFieldMapper
+
+class LinkedInEasyApplyHandler(BaseHandler):
+    def __init__(self):
+        super().__init__("linkedin")
+
+    def discover_fields(self, url: str, html_content: Optional[str] = None) -> List[Dict[str, Any]]:
+        return [
+            {"field_name": "Full Name", "field_type": "text", "maps_to_profile_field": "full_name", "is_required": True},
+            {"field_name": "Email", "field_type": "text", "maps_to_profile_field": "email", "is_required": True},
+            {"field_name": "Phone Country Code", "field_type": "text", "maps_to_profile_field": "phone", "is_required": True},
+            {"field_name": "Mobile Phone Number", "field_type": "text", "maps_to_profile_field": "phone", "is_required": True},
+            {"field_name": "Resume Upload", "field_type": "file", "maps_to_profile_field": "resume_file", "is_required": True},
+            {"field_name": "Years of Experience", "field_type": "text", "maps_to_profile_field": "years_experience", "is_required": True}
+        ]
+
+    def fill_form(
+        self,
+        job: Dict[str, Any],
+        tailored_resume_path: str,
+        profile: Dict[str, Any],
+        screenshot_path: str,
+        auto_submit: bool = False,
+        html_fixture: Optional[str] = None
+    ) -> FillResult:
+        # Decision 4: LinkedIn is permanently Mode A (manual confirm) to avoid account bans
+        discovered = self.discover_fields(job.get("posting_url", ""))
+        mapper = ApplicationFieldMapper(profile)
+        mapping_result = mapper.map_fields(discovered, tailored_resume_path=tailored_resume_path)
+
+        Path(screenshot_path).parent.mkdir(parents=True, exist_ok=True)
+        if not Path(screenshot_path).exists():
+            with open(screenshot_path, "w", encoding="utf-8") as f:
+                f.write(f"[Screenshot Placeholder: LinkedIn Easy Apply for {job.get('company')}]")
+
+        return FillResult(
+            status="PENDING_REVIEW",
+            platform_type=self.platform_name,
+            fields_filled=mapping_result["mapped_fields"],
+            screenshot_path=screenshot_path,
+            submission_mode="manual_confirm"
+        )
+
+```
+---
 
 ## File: `src/handlers/generic_custom.py`
 ```python
@@ -2433,6 +2865,7 @@ class GenericCustomHandler(BaseHandler):
         )
 
 ```
+---
 
 ## File: `dashboard/server.py`
 ```python
@@ -2497,6 +2930,8 @@ class BatchRunRequest(BaseModel):
 
 @app.on_event("startup")
 def startup():
+    from src.db import init_db
+    init_db(DB_PATH)
     orchestrator.get_or_create_profile()
     taxonomy_service.seed_standard_taxonomy()
     # Ingest historical jobs on startup if empty
@@ -2866,6 +3301,7 @@ if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8765)
 
 ```
+---
 
 ## File: `dashboard/index.html`
 ```html
@@ -3279,6 +3715,7 @@ if __name__ == "__main__":
 </html>
 
 ```
+---
 
 ## File: `dashboard/styles.css`
 ```css
@@ -3838,6 +4275,7 @@ body {
 .check-label { display: flex; align-items: center; gap: 6px; font-size: 12.5px; cursor: pointer; }
 
 ```
+---
 
 ## File: `dashboard/app.js`
 ```javascript
@@ -4524,6 +4962,45 @@ function escapeHtml(str) {
 }
 
 ```
+---
+
+## File: `tests/fixtures/sample_jobs.json`
+```json
+[
+  {
+    "id": "mock_job_01",
+    "title": "Lead AI Product Manager",
+    "company": "Anthropic",
+    "url": "https://boards.greenhouse.io/anthropic/jobs/4001",
+    "description": "We are seeking a Lead AI Product Manager to build agentic workflows with LangChain and Python. Location: San Francisco, CA. Salary: $190,000 - $240,000. Contact: Sarah Connor (sarah@anthropic.com).",
+    "location": "San Francisco, CA (Remote)",
+    "salary": "$190,000 - $240,000",
+    "date_posted": "2026-08-25"
+  },
+  {
+    "id": "mock_job_02",
+    "title": "Principal Fintech Platform PM",
+    "company": "Stripe",
+    "url": "https://jobs.lever.co/stripe/5002",
+    "description": "Scale payments and fraud decisioning pipelines using modern microservices and Appian workflows. Remote, US.",
+    "location": "Remote, US",
+    "salary": "$180,000 - $220,000",
+    "date_posted": "2026-08-26"
+  },
+  {
+    "id": "mock_job_03",
+    "title": "Staff Enterprise Architect",
+    "company": "Workday Labs",
+    "url": "https://myworkdayjobs.com/workday/6003",
+    "description": "Lead enterprise risk modernization and cloud transformations.",
+    "location": "Pleasanton, CA",
+    "salary": "Not listed",
+    "date_posted": "2026-08-24"
+  }
+]
+
+```
+---
 
 ## File: `tests/test_db.py`
 ```python
@@ -4626,6 +5103,7 @@ if __name__ == "__main__":
     unittest.main()
 
 ```
+---
 
 ## File: `tests/test_llm.py`
 ```python
@@ -4664,6 +5142,7 @@ if __name__ == "__main__":
     unittest.main()
 
 ```
+---
 
 ## File: `tests/test_ingestion.py`
 ```python
@@ -4716,6 +5195,7 @@ if __name__ == "__main__":
     unittest.main()
 
 ```
+---
 
 ## File: `tests/test_extraction.py`
 ```python
@@ -4826,6 +5306,7 @@ if __name__ == "__main__":
     unittest.main()
 
 ```
+---
 
 ## File: `tests/test_tailoring.py`
 ```python
@@ -4944,6 +5425,7 @@ if __name__ == "__main__":
     unittest.main()
 
 ```
+---
 
 ## File: `tests/test_executor.py`
 ```python
@@ -5077,6 +5559,7 @@ if __name__ == "__main__":
     unittest.main()
 
 ```
+---
 
 ## File: `tests/test_orchestrator.py`
 ```python
@@ -5167,3 +5650,4 @@ if __name__ == "__main__":
 
 
 ```
+---
