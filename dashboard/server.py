@@ -59,6 +59,8 @@ class BatchRunRequest(BaseModel):
 
 @app.on_event("startup")
 def startup():
+    from src.db import init_db
+    init_db(DB_PATH)
     orchestrator.get_or_create_profile()
     taxonomy_service.seed_standard_taxonomy()
     # Ingest historical jobs on startup if empty
