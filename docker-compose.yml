@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  apexapply:
+    build: .
+    image: apexapply-agent:latest
+    container_name: apexapply-agent
+    restart: always
+    ports:
+      - "8765:8765"
+    environment:
+      - LLM_PROVIDER=mock
+      - PORT=8765
+    volumes:
+      - apexapply_data:/app/data
+
+volumes:
+  apexapply_data:
