@@ -1,0 +1,32 @@
+[
+  {
+    "id": "mock_job_01",
+    "title": "Lead AI Product Manager",
+    "company": "Anthropic",
+    "url": "https://boards.greenhouse.io/anthropic/jobs/4001",
+    "description": "We are seeking a Lead AI Product Manager to build agentic workflows with LangChain and Python. Location: San Francisco, CA. Salary: $190,000 - $240,000. Contact: Sarah Connor (sarah@anthropic.com).",
+    "location": "San Francisco, CA (Remote)",
+    "salary": "$190,000 - $240,000",
+    "date_posted": "2026-08-25"
+  },
+  {
+    "id": "mock_job_02",
+    "title": "Principal Fintech Platform PM",
+    "company": "Stripe",
+    "url": "https://jobs.lever.co/stripe/5002",
+    "description": "Scale payments and fraud decisioning pipelines using modern microservices and Appian workflows. Remote, US.",
+    "location": "Remote, US",
+    "salary": "$180,000 - $220,000",
+    "date_posted": "2026-08-26"
+  },
+  {
+    "id": "mock_job_03",
+    "title": "Staff Enterprise Architect",
+    "company": "Workday Labs",
+    "url": "https://myworkdayjobs.com/workday/6003",
+    "description": "Lead enterprise risk modernization and cloud transformations.",
+    "location": "Pleasanton, CA",
+    "salary": "Not listed",
+    "date_posted": "2026-08-24"
+  }
+]

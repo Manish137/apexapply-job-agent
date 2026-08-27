@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ApexApply — Auto-Apply Job Agent & Command Center</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-layout">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-logo">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
+        </div>
+        <div class="brand-meta">
+          <h2>ApexApply</h2>
+          <span class="badge-mode">MODE A: HUMAN CONFIRM</span>
+        </div>
+      </div>
+
+      <nav class="nav">
+        <a href="#review" class="nav-link active" id="nav-review">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+          Review Queue <span class="badge-count" id="badge-review-count">0</span>
+        </a>
+        <a href="#tracker" class="nav-link" id="nav-tracker">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
+          Applications Ledger
+        </a>
+        <a href="#profile" class="nav-link" id="nav-profile">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+          Profile & Pre-Fill Editor
+        </a>
+        <a href="#taxonomy" class="nav-link" id="nav-taxonomy">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>
+          Field Taxonomy
+        </a>
+        <a href="#logs" class="nav-link" id="nav-logs">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+          Live Audit Stream
+        </a>
+      </nav>
+
+      <div class="sidebar-user">
+        <div class="user-card">
+          <div class="user-avatar">MS</div>
+          <div class="user-details">
+            <strong>Manish Shukla</strong>
+            <p>Senior Product Leader • AI</p>
+          </div>
+        </div>
+        <div class="system-status">
+          <span class="dot-live"></span>
+          <span>Active • Mode A Verified</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main View -->
+    <main class="main">
+      <header class="header">
+        <div>
+          <h1>Autonomous Job Agent Command Center</h1>
+          <p class="header-subtitle">Scraper Ingestion → Requirement Extraction → Dynamic STAR Tailoring → Mode A Review & Live Pre-Fill</p>
+        </div>
+        <div class="header-cta">
+          <button class="btn btn-secondary" id="btn-open-custom">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            Add Custom Job
+          </button>
+          <button class="btn btn-primary" id="btn-run-batch">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+            Ingest & Run Pipeline
+          </button>
+        </div>
+      </header>
+
+      <!-- KPI Bar -->
+      <section class="stats-row">
+        <div class="stat-card">
+          <div class="stat-icon icon-amber">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 14 14"></polyline></svg>
+          </div>
+          <div>
+            <div class="stat-label">Pending Review (Mode A)</div>
+            <div class="stat-val" id="stat-pending">0</div>
+          </div>
+        </div>
+
+        <div class="stat-card">
+          <div class="stat-icon icon-emerald">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"></path></svg>
+          </div>
+          <div>
+            <div class="stat-label">Submitted Applications</div>
+            <div class="stat-val" id="stat-submitted">0</div>
+          </div>
+        </div>
+
+        <div class="stat-card">
+          <div class="stat-icon icon-purple">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+          </div>
+          <div>
+            <div class="stat-label">Avg ATS Match Score</div>
+            <div class="stat-val" id="stat-avg-score">0%</div>
+          </div>
+        </div>
+
+        <div class="stat-card">
+          <div class="stat-icon icon-blue">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+          </div>
+          <div>
+            <div class="stat-label">Total Jobs Scraped</div>
+            <div class="stat-val" id="stat-total-jobs">0</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- View 1: Review Queue (Mode A Central Screen) -->
+      <section class="card-section" id="view-review">
+        <div class="card-head">
+          <div>
+            <h3>Review Queue (Mode A: Pre-Filled Applications)</h3>
+            <p>Inspect job details, verified match score, scraped timestamps, pre-filled ATS fields, and launch portal</p>
+          </div>
+          <div class="filter-group">
+            <button class="btn btn-secondary btn-sm filter-pill active" data-period="all" id="filter-review-all">All Jobs</button>
+            <button class="btn btn-secondary btn-sm filter-pill" data-period="past_week" id="filter-review-week">📅 Past Week (Last 7 Days)</button>
+          </div>
+        </div>
+        <div id="review-queue-cards" class="review-stack">
+          <!-- Populated by JS -->
+        </div>
+      </section>
+
+      <!-- View 2: Applications Ledger -->
+      <section class="card-section" id="view-tracker" style="display: none;">
+        <div class="card-head">
+          <div>
+            <h3>Applications Ledger</h3>
+            <p>Comprehensive record of all applications, tailored resumes, recruiter contacts, and interview stages</p>
+          </div>
+          <div class="filter-group">
+            <input type="text" id="tracker-search" class="input-search" placeholder="Search title, company, skill...">
+            <select id="tracker-status-filter" class="select-filter">
+              <option value="all">All Statuses</option>
+              <option value="PENDING_REVIEW">Pending Review</option>
+              <option value="SUBMITTED">Submitted</option>
+              <option value="FAILED">Failed</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Job & Company</th>
+                <th>Platform</th>
+                <th>Scraped Date</th>
+                <th>Match Score</th>
+                <th>Recruiter Contact</th>
+                <th>Skills Targeted</th>
+                <th>Skills Gap</th>
+                <th>Resume</th>
+                <th>Status</th>
+                <th>Response Outcome</th>
+                <th>Link</th>
+              </tr>
+            </thead>
+            <tbody id="tracker-tbody">
+              <!-- Populated by JS -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- View 3: Profile & Pre-Fill Editor -->
+      <section class="card-section" id="view-profile" style="display: none;">
+        <div class="card-head">
+          <div>
+            <h3>Candidate Profile & Pre-Fill Data Editor</h3>
+            <p>Master values reused by the Form Mapper across Greenhouse, Lever, Workday, and LinkedIn</p>
+          </div>
+          <button class="btn btn-primary" id="btn-save-profile">Save Changes</button>
+        </div>
+        <div class="profile-grid" id="profile-fields-container">
+          <!-- Populated by JS -->
+        </div>
+      </section>
+
+      <!-- View 4: Field Taxonomy -->
+      <section class="card-section" id="view-taxonomy" style="display: none;">
+        <div class="card-head">
+          <div>
+            <h3>Discovered Field Taxonomy</h3>
+            <p>Learned form fields across ATS platforms</p>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Platform Type</th>
+                <th>Field Name</th>
+                <th>Field Type</th>
+                <th>Maps to Profile Key</th>
+                <th>Required?</th>
+                <th>Last Discovered</th>
+              </tr>
+            </thead>
+            <tbody id="taxonomy-tbody">
+              <!-- Populated by JS -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- View 5: Live Audit Stream -->
+      <section class="card-section" id="view-logs" style="display: none;">
+        <div class="card-head">
+          <div>
+            <h3>Live Agent Audit & Execution Stream</h3>
+            <p>Structured events from Ingestion, Extraction, Tailoring, and Execution</p>
+          </div>
+        </div>
+        <div class="terminal" id="audit-terminal">
+          <!-- Logs populated by JS -->
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Resume Preview Modal -->
+  <div class="modal" id="modal-resume">
+    <div class="modal-box modal-lg">
+      <div class="modal-head">
+        <div>
+          <h3 id="modal-resume-title">Tailored Resume Preview</h3>
+          <span class="badge-pill" id="modal-resume-score">Score: 92%</span>
+        </div>
+        <button class="modal-x" id="btn-close-resume">&times;</button>
+      </div>
+      <div class="modal-content">
+        <iframe id="resume-frame" class="frame"></iframe>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-secondary" id="btn-close-resume-2">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Custom Job Modal -->
+  <div class="modal" id="modal-custom">
+    <div class="modal-box">
+      <div class="modal-head">
+        <h3>Add Custom Job Listing</h3>
+        <button class="modal-x" id="btn-close-custom">&times;</button>
+      </div>
+      <div class="modal-content">
+        <form id="custom-form">
+          <div class="form-row">
+            <div class="form-col">
+              <label>Job Title *</label>
+              <input type="text" id="cust-title" class="input" required placeholder="Lead AI Product Manager">
+            </div>
+            <div class="form-col">
+              <label>Company *</label>
+              <input type="text" id="cust-company" class="input" required placeholder="Anthropic">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-col">
+              <label>Posting URL</label>
+              <input type="url" id="cust-url" class="input" placeholder="https://boards.greenhouse.io/...">
+            </div>
+            <div class="form-col">
+              <label>Location</label>
+              <input type="text" id="cust-location" class="input" placeholder="Remote / SF">
+            </div>
+          </div>
+          <div class="form-col" style="margin-top: 10px;">
+            <label>Job Description</label>
+            <textarea id="cust-desc" class="textarea" rows="4" placeholder="Paste JD text..."></textarea>
+          </div>
+          <div style="margin-top: 12px;">
+            <label class="check-label">
+              <input type="checkbox" id="cust-auto">
+              <span>Auto-submit if match score ≥ 70% (Mode B)</span>
+            </label>
+          </div>
+        </form>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-secondary" id="btn-cancel-custom">Cancel</button>
+        <button class="btn btn-primary" id="btn-submit-custom">Process & Tailor</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

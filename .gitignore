@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+
+# Databases
+*.db-journal
+*.db-wal
+
+# Screenshots and temporary data
+data/screenshots/*.png
+!data/screenshots/.gitkeep
+
+# Environment secrets
+.env
+.env.local
+
+# IDE
+.DS_Store
+.vscode/
+.idea/
