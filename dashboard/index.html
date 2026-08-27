@@ -238,20 +238,49 @@
     </main>
   </div>
 
-  <!-- Resume Preview Modal -->
+  <!-- Resume Preview & Comparison Modal -->
   <div class="modal" id="modal-resume">
-    <div class="modal-box modal-lg">
+    <div class="modal-box modal-lg" style="max-width: 1000px; width: 92vw;">
       <div class="modal-head">
         <div>
-          <h3 id="modal-resume-title">Tailored Resume Preview</h3>
-          <span class="badge-pill" id="modal-resume-score">Score: 92%</span>
+          <h3 id="modal-resume-title">Tailored Resume & Original Comparison</h3>
+          <div style="display:flex;gap:8px;align-items:center;margin-top:4px;">
+            <span class="badge-pill" id="modal-resume-score">Score: 92%</span>
+            <div class="filter-pills" style="margin:0;">
+              <button class="pill active" id="tab-tailored" onclick="switchResumeTab('tailored')">📄 Tailored HTML</button>
+              <button class="pill" id="tab-compare" onclick="switchResumeTab('compare')">⚖️ Original vs Tailored Diff</button>
+            </div>
+          </div>
         </div>
         <button class="modal-x" id="btn-close-resume">&times;</button>
       </div>
-      <div class="modal-content">
-        <iframe id="resume-frame" class="frame"></iframe>
+      <div class="modal-content" style="padding: 12px 20px;">
+        <!-- Single Frame View -->
+        <div id="view-single-resume" style="height: 580px;">
+          <iframe id="resume-frame" class="frame" style="width:100%;height:100%;border:none;border-radius:6px;"></iframe>
+        </div>
+        <!-- Side by Side Compare View -->
+        <div id="view-compare-resume" style="display:none; height: 580px;">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;height:100%;">
+            <div style="display:flex;flex-direction:column;height:100%;">
+              <div style="font-weight:600;font-size:13px;color:var(--text-muted);margin-bottom:6px;display:flex;justify-content:space-between;">
+                <span>ORIGINAL MASTER RESUME</span>
+                <span class="badge-tag">Base Profile</span>
+              </div>
+              <textarea id="compare-original-text" readonly style="flex:1;background:var(--bg-secondary);color:var(--text-main);font-family:monospace;font-size:11px;padding:12px;border:1px solid var(--border-color);border-radius:6px;resize:none;line-height:1.5;"></textarea>
+            </div>
+            <div style="display:flex;flex-direction:column;height:100%;">
+              <div style="font-weight:600;font-size:13px;color:var(--text-muted);margin-bottom:6px;display:flex;justify-content:space-between;">
+                <span>DYNAMICALLY TAILORED</span>
+                <span class="badge-score" id="compare-score-badge">Targeted</span>
+              </div>
+              <iframe id="compare-tailored-frame" class="frame" style="flex:1;width:100%;border:1px solid var(--border-color);border-radius:6px;"></iframe>
+            </div>
+          </div>
+        </div>
       </div>
-      <div class="modal-foot">
+      <div class="modal-foot" style="display:flex;justify-content:space-between;align-items:center;">
+        <div id="compare-skills-summary" style="font-size:12px;color:var(--text-muted);"></div>
         <button class="btn btn-secondary" id="btn-close-resume-2">Close</button>
       </div>
     </div>

@@ -282,6 +282,64 @@ def apply_custom_endpoint(req: CustomJobRequest):
     res = orchestrator.run_pipeline_for_job(norm["id"], auto_submit=req.auto_submit)
     return {"status": "success", "result": res}
 
+@app.get("/api/resume/compare/{job_id}")
+def compare_resume_endpoint(job_id: str):
+    conn = get_connection(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+    SELECT tr.*, br.file_path as original_file_path, br.name as original_name, j.company, j.title
+    FROM tailored_resumes tr
+    JOIN base_resumes br ON tr.base_resume_id = br.id
+    JOIN jobs j ON tr.job_id = j.id
+    WHERE tr.job_id = ?
+    ORDER BY tr.generated_at DESC LIMIT 1
+    """, (job_id,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Tailored resume comparison not found")
+
+    d = dict(row)
+    original_text = ""
+    if d.get("original_file_path") and Path(d["original_file_path"]).exists():
+        with open(d["original_file_path"], "r", encoding="utf-8") as f:
+            original_text = f.read()
+
+    tailored_text = ""
+    if d.get("file_path") and Path(d["file_path"]).exists():
+        with open(d["file_path"], "r", encoding="utf-8") as f:
+            tailored_text = f.read()
+
+    return {
+        "job_id": job_id,
+        "company": d.get("company"),
+        "title": d.get("title"),
+        "match_score": d.get("match_score"),
+        "original_name": d.get("original_name"),
+        "original_text": original_text,
+        "tailored_html": tailored_text,
+        "skills_matched": json.loads(d.get("skills_added_emphasis") or "[]"),
+        "skills_gap": json.loads(d.get("skills_gap") or "[]")
+    }
+
+@app.get("/api/screenshot/{job_id}")
+def get_screenshot_endpoint(job_id: str):
+    conn = get_connection(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT screenshot_before_submit_path FROM applications WHERE job_id = ?", (job_id,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if row and row["screenshot_before_submit_path"] and Path(row["screenshot_before_submit_path"]).exists():
+        return FileResponse(row["screenshot_before_submit_path"], media_type="image/png")
+    
+    # Fallback to default screenshot placeholder
+    default_ss = DATA_DIR / "screenshots" / f"screenshot_{job_id}.png"
+    if default_ss.exists():
+        return FileResponse(str(default_ss), media_type="image/png")
+    raise HTTPException(status_code=404, detail="Screenshot not found")
+
 @app.get("/api/resume/preview/{job_id}")
 def preview_resume_endpoint(job_id: str):
     conn = get_connection(DB_PATH)

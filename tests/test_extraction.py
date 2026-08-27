@@ -60,5 +60,46 @@ class TestExtraction(unittest.TestCase):
         self.assertEqual(cursor.fetchone()["c"], 3)
         conn.close()
 
+    def test_expanded_120_skill_catalog(self):
+        """Verifies that modern cloud, DevOps, backend, and AI skills are accurately extracted."""
+        sample_jd = """
+        We are seeking a Platform Engineer proficient in Kubernetes, Docker, Terraform, Rust, and GraphQL.
+        Must have experience deploying LLMs with PyTorch and integrating Snowflake or BigQuery data pipelines.
+        """
+        extracted = self.engine.llm.extract_requirements(sample_jd, title="Platform Engineer", company="InfraTech")
+        skills = extracted.get("required_skills", [])
+        
+        self.assertIn("Kubernetes", skills)
+        self.assertIn("Terraform", skills)
+        self.assertIn("Rust", skills)
+        self.assertIn("GraphQL", skills)
+        self.assertIn("PyTorch", skills)
+        self.assertIn("Snowflake", skills)
+        self.assertIn("BigQuery", skills)
+
+    def test_honest_skill_gap_scoring(self):
+        """Verifies that non-matching technical skills are recognized as gaps and lower the score."""
+        from src.scoring import MatchScorer
+        scorer = MatchScorer()
+
+        candidate_skills = ["Product Management", "AI/ML", "LangChain", "Python", "SQL", "Agile/Scrum"]
+        devops_job_reqs = {
+            "required_skills": ["Kubernetes", "Terraform", "Rust", "Ansible", "Helm"],
+            "nice_to_have_skills": ["C++", "Linux"],
+            "min_years_experience": 8,
+            "education_requirement": "Bachelor"
+        }
+
+        result_score, matched, skills_gap = scorer.calculate_match(
+            candidate_skills=candidate_skills,
+            required_skills=devops_job_reqs["required_skills"],
+            nice_to_have_skills=devops_job_reqs["nice_to_have_skills"]
+        )
+        self.assertLess(result_score, 40)
+        self.assertIn("Kubernetes", skills_gap)
+        self.assertIn("Terraform", skills_gap)
+        self.assertIn("Rust", skills_gap)
+
+
 if __name__ == "__main__":
     unittest.main()

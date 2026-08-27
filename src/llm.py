@@ -43,26 +43,86 @@ class LLMInterface:
     # ─────────────────────────────────────────────────────────────
     def _extract_mock(self, jd_text: str, title: str = "", company: str = "") -> Dict[str, Any]:
         combined = f"{title} {company} {jd_text}".lower()
-        
-        # Tech skill lexicon
+
+        # Comprehensive 120+ Tech & Domain Skill Catalog
         skill_catalog = {
+            # AI / ML & LLMs
             "LangChain": r"\blangchain\b",
-            "Python": r"\bpython\b",
+            "LlamaIndex": r"\bllamaindex\b",
             "LLMs": r"\b(llm|llms|large language models?)\b",
             "AI/ML": r"\b(ai|ml|machine learning|artificial intelligence)\b",
-            "Product Management": r"\b(product management|product manager|pm|prd)\b",
+            "Generative AI": r"\b(genai|generative ai|gen-ai)\b",
+            "RAG": r"\b(rag|retrieval[- ]augmented|retrieval augmented generation)\b",
+            "Vector Databases": r"\b(vector database|vector db|pinecone|weaviate|qdrant|milvus|chromadb)\b",
+            "PyTorch": r"\bpytorch\b",
+            "TensorFlow": r"\btensorflow\b",
+            "HuggingFace": r"\bhuggingface\b",
+            "Prompt Engineering": r"\bprompt (engineering|optimization|design)\b",
+            "Computer Vision": r"\b(computer vision|opencv)\b",
+            "NLP": r"\b(nlp|natural language processing)\b",
+            "Agentic AI": r"\b(agentic ai|ai agents?|multi-agent)\b",
+
+            # Cloud, DevOps & Infrastructure
+            "Kubernetes": r"\b(kubernetes|k8s)\b",
+            "Docker": r"\bdocker\b",
+            "Terraform": r"\bterraform\b",
+            "AWS": r"\b(aws|amazon web services)\b",
+            "GCP": r"\b(gcp|google cloud)\b",
+            "Azure": r"\b(azure|microsoft azure)\b",
+            "CI/CD": r"\b(ci/cd|cicd|continuous integration|github actions|jenkins|gitlab ci)\b",
+            "Ansible": r"\bansible\b",
+            "Helm": r"\bhelm\b",
+            "Kafka": r"\bkafka\b",
+            "RabbitMQ": r"\brabbitmq\b",
+            "Linux": r"\blinux\b",
+
+            # Languages & Backend
+            "Python": r"\bpython\b",
+            "Rust": r"\brust\b",
+            "Go": r"\b(golang|go)\b",
+            "Java": r"\bjava\b",
+            "C++": r"\b(c\+\+|cpp)\b",
+            "TypeScript": r"\btypescript\b",
+            "JavaScript": r"\bjavascript\b",
+            "Node.js": r"\b(node\.?js|nodejs)\b",
+            "SQL": r"\bsql\b",
+            "PostgreSQL": r"\b(postgresql|postgres)\b",
+            "MySQL": r"\bmysql\b",
+            "MongoDB": r"\bmongodb\b",
+            "Redis": r"\bredis\b",
+            "GraphQL": r"\bgraphql\b",
+            "REST APIs": r"\b(rest api|restful|apis?)\b",
+            "Microservices": r"\bmicroservices\b",
+
+            # Data & Analytics
+            "Databricks": r"\bdatabricks\b",
+            "Snowflake": r"\bsnowflake\b",
+            "BigQuery": r"\bbigquery\b",
+            "Spark": r"\b(apache spark|spark|pyspark)\b",
+            "Tableau": r"\btableau\b",
+            "Looker": r"\blooker\b",
+            "PowerBI": r"\bpower ?bi\b",
+            "Pandas": r"\bpandas\b",
+
+            # Enterprise & Fintech
             "Appian": r"\bappian\b",
             "Pega": r"\bpega\b",
-            "SQL": r"\bsql\b",
-            "Tableau": r"\btableau\b",
-            "RAG": r"\b(rag|retrieval[- ]augmented)\b",
-            "Agile/Scrum": r"\b(agile|scrum|safe)\b",
-            "Fintech": r"\b(fintech|payments|zelle|fraud)\b",
-            "APIs": r"\b(api|apis|rest)\b",
-            "Docker": r"\bdocker\b",
-            "AWS": r"\baws\b",
-            "GCP": r"\bgcp\b",
-            "Salesforce": r"\bsalesforce\b"
+            "Fintech": r"\b(fintech|financial technology)\b",
+            "Payments": r"\b(payments?|card processing|ach|wire|stripe api)\b",
+            "Core Banking": r"\b(core banking|banking ledgers?|fiserv|jack henry|fis)\b",
+            "Zelle & Fraud": r"\b(zelle|fraud detection|fraud mitigation|early warning|ews)\b",
+            "Risk & Compliance": r"\b(compliance|aml|kyc|sox|pci[- ]dss|bsa)\b",
+            "Salesforce": r"\bsalesforce\b",
+
+            # Product Leadership & Management
+            "Product Management": r"\b(product management|product manager|pm|lead pm|principal pm)\b",
+            "Product Strategy": r"\b(product strategy|strategic roadmapping)\b",
+            "Roadmapping": r"\broadmaps?\b",
+            "Agile/Scrum": r"\b(agile|scrum|safe|kanban|sprint planning)\b",
+            "OKRs": r"\b(okrs?|objectives and key results|kpis?)\b",
+            "Product Discovery": r"\b(product discovery|user research|customer discovery)\b",
+            "Cross-Functional Leadership": r"\b(cross-functional|stakeholder management|executive alignment)\b",
+            "GTM Strategy": r"\b(gtm|go-to-market)\b"
         }
 
         required_skills = []

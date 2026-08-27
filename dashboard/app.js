@@ -504,12 +504,54 @@ window.updateResponse = async function(appId, responseStatus) {
   }
 };
 
-window.viewResume = function(jobId, company, score) {
+window.switchResumeTab = function(tab) {
+  const singleView = document.getElementById('view-single-resume');
+  const compareView = document.getElementById('view-compare-resume');
+  const tabTailored = document.getElementById('tab-tailored');
+  const tabCompare = document.getElementById('tab-compare');
+
+  if (tab === 'compare') {
+    singleView.style.display = 'none';
+    compareView.style.display = 'block';
+    tabTailored.classList.remove('active');
+    tabCompare.classList.add('active');
+  } else {
+    singleView.style.display = 'block';
+    compareView.style.display = 'none';
+    tabTailored.classList.add('active');
+    tabCompare.classList.remove('active');
+  }
+};
+
+window.viewResume = async function(jobId, company, score) {
   const modal = document.getElementById('modal-resume');
-  document.getElementById('modal-resume-title').textContent = `Tailored Resume for ${company}`;
+  document.getElementById('modal-resume-title').textContent = `Resume Tailoring for ${company}`;
   document.getElementById('modal-resume-score').textContent = `🎯 ${score}% ATS Match`;
   document.getElementById('resume-frame').src = `${API_BASE}/api/resume/preview/${jobId}`;
+  
+  // Default to single view tab
+  switchResumeTab('tailored');
   modal.style.display = 'flex';
+
+  // Load comparison data asynchronously
+  try {
+    const res = await fetch(`${API_BASE}/api/resume/compare/${jobId}`);
+    if (res.ok) {
+      const data = await res.json();
+      document.getElementById('compare-original-text').value = data.original_text || 'Original master profile text';
+      document.getElementById('compare-tailored-frame').src = `${API_BASE}/api/resume/preview/${jobId}`;
+      document.getElementById('compare-score-badge').textContent = `🎯 ${data.match_score}% Score`;
+      
+      const targetedStr = (data.skills_matched || []).join(', ') || 'General AI Leadership';
+      const gapStr = (data.skills_gap || []).join(', ') || 'None (Strong Match)';
+      document.getElementById('compare-skills-summary').innerHTML = `
+        <strong>Targeted:</strong> <span style="color:var(--primary);">${escape(targetedStr)}</span> &nbsp;|&nbsp;
+        <strong>Honest Gaps:</strong> <span style="color:#ef4444;">${escape(gapStr)}</span>
+      `;
+    }
+  } catch (err) {
+    console.error('Error fetching resume comparison:', err);
+  }
 };
 
 async function runBatchPipeline() {
