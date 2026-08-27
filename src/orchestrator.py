@@ -68,7 +68,33 @@ class JobAgentOrchestrator:
         return profile
 
     def run_pipeline_for_job(self, job_id: str, auto_submit: Optional[bool] = None) -> Dict[str, Any]:
-        """Runs full pipeline for a single job."""
+        """Runs full pipeline for a single job with preference and blacklist checks."""
+        from src.db import get_preferences
+        prefs = get_preferences(db_path=self.db_path)
+
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM jobs WHERE id = ?", (job_id,))
+        job_row = cursor.fetchone()
+        conn.close()
+
+        if not job_row:
+            return {"job_id": job_id, "status": "FAILED", "error": "Job not found"}
+        
+        job = dict(job_row)
+        company = job.get("company", "").lower()
+        blacklisted = [b.lower() for b in prefs.get("blacklisted_companies", [])]
+
+        # 0. Blacklist Check (ScaleJobs style)
+        if any(b in company for b in blacklisted if b):
+            conn = get_connection(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("UPDATE jobs SET status = 'SKIPPED' WHERE id = ?", (job_id,))
+            conn.commit()
+            conn.close()
+            log_audit("JOB_SKIPPED", "WARNING", job_id, f"Company '{job.get('company')}' is in user blacklist", self.db_path)
+            return {"job_id": job_id, "status": "SKIPPED", "reason": "Blacklisted company"}
+
         if auto_submit is None:
             auto_submit = (self.default_submission_mode == "auto")
 
@@ -77,21 +103,22 @@ class JobAgentOrchestrator:
         if not reqs:
             return {"job_id": job_id, "status": "FAILED", "error": "Extraction failed"}
 
-        # 2. Tailoring & Scoring
+        # 2. Tailoring & Scoring & Cover Letter
         tailored = self.tailoring.tailor_for_job(job_id)
         if not tailored:
             return {"job_id": job_id, "status": "FAILED", "error": "Tailoring failed"}
 
         score = tailored["match_score"]
+        threshold = prefs.get("auto_tailor_threshold", self.borderline_threshold)
 
         # 3. Decision Threshold
-        if score < self.borderline_threshold:
+        if score < threshold:
             conn = get_connection(self.db_path)
             cursor = conn.cursor()
             cursor.execute("UPDATE jobs SET status = 'SKIPPED' WHERE id = ?", (job_id,))
             conn.commit()
             conn.close()
-            log_audit("JOB_SKIPPED", "WARNING", job_id, f"Match score ({score}%) below threshold ({self.borderline_threshold}%)", self.db_path)
+            log_audit("JOB_SKIPPED", "WARNING", job_id, f"Match score ({score}%) below threshold ({threshold}%)", self.db_path)
             return {"job_id": job_id, "status": "SKIPPED", "match_score": score, "reason": "Low match score"}
 
         # 4. Execution
@@ -102,7 +129,8 @@ class JobAgentOrchestrator:
             "job_id": job_id,
             "status": app_result["status"] if app_result else "FAILED",
             "match_score": score,
-            "application": app_result
+            "application": app_result,
+            "cover_letter": tailored.get("cover_letter")
         }
 
     def run_batch_pipeline(self, max_jobs: int = 15, auto_submit: Optional[bool] = None) -> List[Dict[str, Any]]:

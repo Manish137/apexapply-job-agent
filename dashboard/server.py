@@ -340,6 +340,74 @@ def get_screenshot_endpoint(job_id: str):
         return FileResponse(str(default_ss), media_type="image/png")
     raise HTTPException(status_code=404, detail="Screenshot not found")
 
+@app.get("/api/cover-letter/{job_id}")
+def get_cover_letter_endpoint(job_id: str):
+    from src.db import get_cover_letter
+    cl = get_cover_letter(job_id, DB_PATH)
+    if not cl:
+        raise HTTPException(status_code=404, detail="Cover letter not found for this job")
+    return cl
+
+@app.get("/api/match-breakdown/{job_id}")
+def get_match_breakdown_endpoint(job_id: str):
+    from src.scoring import MatchScorer
+    from src.db import get_profile, get_preferences
+    
+    conn = get_connection(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM jobs WHERE id = ?", (job_id,))
+    job_row = cursor.fetchone()
+    if not job_row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    cursor.execute("SELECT * FROM job_requirements WHERE job_id = ?", (job_id,))
+    req_row = cursor.fetchone()
+    conn.close()
+
+    job = dict(job_row)
+    reqs = dict(req_row) if req_row else {}
+    if reqs and isinstance(reqs.get("required_skills"), str):
+        try:
+            reqs["required_skills"] = json.loads(reqs["required_skills"])
+            reqs["nice_to_have_skills"] = json.loads(reqs.get("nice_to_have_skills") or "[]")
+            reqs["keywords_for_ats"] = json.loads(reqs.get("keywords_for_ats") or "[]")
+        except:
+            pass
+
+    profile = get_profile(db_path=DB_PATH) or {}
+    prefs = get_preferences(db_path=DB_PATH)
+
+    candidate_skills = [
+        "Product Leadership", "Product Strategy", "Generative AI", "AI/ML", "LLMs", "RAG",
+        "LangChain", "LlamaIndex", "Vector Databases", "Prompt Engineering", "Python", "SQL",
+        "Appian", "Pega", "Fintech", "Payments", "Zelle & Fraud", "Risk & Compliance", "Agile/Scrum"
+    ]
+
+    scorer = MatchScorer()
+    breakdown = scorer.generate_match_breakdown(
+        candidate_skills=candidate_skills,
+        candidate_years=profile.get("years_experience", 15),
+        candidate_target_salary=prefs.get("min_salary", 180000),
+        job=job,
+        job_requirements=reqs
+    )
+    breakdown["job_id"] = job_id
+    breakdown["company"] = job.get("company")
+    breakdown["title"] = job.get("title")
+    return breakdown
+
+@app.get("/api/preferences")
+def get_preferences_endpoint():
+    from src.db import get_preferences
+    return get_preferences(db_path=DB_PATH)
+
+@app.patch("/api/preferences")
+def update_preferences_endpoint(pref_data: Dict[str, Any]):
+    from src.db import upsert_preferences, get_preferences
+    upsert_preferences(pref_data, db_path=DB_PATH)
+    return {"status": "success", "preferences": get_preferences(db_path=DB_PATH)}
+
 @app.get("/api/resume/preview/{job_id}")
 def preview_resume_endpoint(job_id: str):
     conn = get_connection(DB_PATH)

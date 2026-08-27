@@ -1,97 +1,7 @@
-# ApexApply Auto-Apply Job Agent — Complete Codebase for Third-Party Model Review
-
-**Updated Remediation Release Highlights:**
-1. **Real Playwright Browser Automation**: Implemented Chromium page automation in `GreenhouseHandler`, `LeverHandler`, and `GenericCustomHandler` for real DOM selector filling, file uploading (`set_input_files`), and actual PNG screenshot capture (`page.screenshot()`).
-2. **Honest Submission Integrity**: `SUBMITTED` status is strictly gated on detecting verifiable confirmation elements (e.g. `application_confirmation`, `Thank you for applying`). Unconfirmed applications stay in `PENDING_REVIEW` / `manual_confirm` without falsifying submission logs.
-3. **True Resume File Ingestion & Original vs Tailored Side-by-Side View**: Added `/api/resume/compare/{job_id}` and interactive side-by-side comparison modal with original master text vs tailored output, targeted skills, and explicit gaps.
-4. **Comprehensive 120+ Skill Taxonomy & Honest Scoring**: Expanded extraction vocabulary from 17 words to 120+ tech/domain skills (Kubernetes, Terraform, PyTorch, BigQuery, Snowflake, Databricks, GraphQL, Rust, etc.). Missing skills accurately lower match score and surface in `skills_gap[]`.
-5. **Persistent Docker Volume**: Added named volume `apexapply_data:/app/data` to guarantee database and resume persistence across container restarts.
-
----
-
-## File: `requirements.txt`
-
-```txt
-fastapi>=0.110.0
-uvicorn>=0.28.0
-pydantic>=2.6.0
-python-dotenv>=1.0.0
-python-docx>=1.1.0
-playwright>=1.42.0
-jinja2>=3.1.3
-requests>=2.31.0
-pytest>=8.0.0
-
-```
-
----
-
-## File: `docker-compose.yml`
-
-```yml
-version: '3.8'
-
-services:
-  apexapply:
-    image: python:3.11-slim
-    container_name: apexapply-agent
-    restart: always
-    ports:
-      - "8765:8765"
-    environment:
-      - PORT=8765
-      - LLM_PROVIDER=mock
-    volumes:
-      - apexapply_data:/app/data
-    command: >
-      sh -c "apt-get update && apt-get install -y git curl gcc &&
-             rm -rf /tmp/app_src && git clone https://github.com/Manish137/apexapply-job-agent.git /tmp/app_src &&
-             mkdir -p /app && cp -rn /tmp/app_src/* /app/ 2>/dev/null || cp -r /tmp/app_src/* /app/ &&
-             cd /app && pip install --no-cache-dir -r requirements.txt &&
-             python -m playwright install --with-deps chromium 2>/dev/null || true &&
-             python -m uvicorn dashboard.server:app --host 0.0.0.0 --port 8765"
-
-volumes:
-  apexapply_data:
-
-```
-
----
-
-## File: `Dockerfile`
-
-```
-FROM python:3.11-slim
-
-WORKDIR /app
-
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    gcc \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy requirements and install
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy application source code and assets
-COPY src/ ./src/
-COPY dashboard/ ./dashboard/
-COPY data/ ./data/
-COPY tests/ ./tests/
-
-EXPOSE 8765
-
-CMD ["python", "-m", "uvicorn", "dashboard.server:app", "--host", "0.0.0.0", "--port", "8765"]
-
-```
-
----
+# ApexApply Autonomous Job Application Agent — Complete Codebase
 
 ## File: `README.md`
-
-```md
+```markdown
 # ApexApply — Autonomous Job Application Agent & Command Center
 
 **ApexApply** is a production-grade autonomous agent and dashboard that consumes listings from scraper feeds, extracts structured requirements, dynamically tailors high-impact resumes using the STAR framework, calculates honest ATS match scores, maps form fields across major ATS platforms (Greenhouse, Lever, Workday, LinkedIn, Custom), and manages Mode A (Human Confirms Submit) pre-fill review and execution.
@@ -182,10 +92,50 @@ Open **`http://localhost:8765`** in your browser.
 
 ```
 
----
+## File: `requirements.txt`
+```txt
+fastapi>=0.110.0
+uvicorn>=0.28.0
+pydantic>=2.6.0
+python-dotenv>=1.0.0
+python-docx>=1.1.0
+playwright>=1.42.0
+jinja2>=3.1.3
+requests>=2.31.0
+pytest>=8.0.0
+
+```
+
+## File: `docker-compose.yml`
+```yml
+version: '3.8'
+
+services:
+  apexapply:
+    image: python:3.11-slim
+    container_name: apexapply-agent
+    restart: always
+    ports:
+      - "8765:8765"
+    environment:
+      - PORT=8765
+      - LLM_PROVIDER=mock
+    volumes:
+      - apexapply_data:/app/data
+    command: >
+      sh -c "apt-get update && apt-get install -y git curl gcc &&
+             rm -rf /tmp/app_src && git clone https://github.com/Manish137/apexapply-job-agent.git /tmp/app_src &&
+             mkdir -p /app && cp -rn /tmp/app_src/* /app/ 2>/dev/null || cp -r /tmp/app_src/* /app/ &&
+             cd /app && pip install --no-cache-dir -r requirements.txt &&
+             python -m playwright install --with-deps chromium 2>/dev/null || true &&
+             python -m uvicorn dashboard.server:app --host 0.0.0.0 --port 8765"
+
+volumes:
+  apexapply_data:
+
+```
 
 ## File: `src/db.py`
-
 ```python
 """
 Database Module for ApexApply Job Agent
@@ -349,6 +299,60 @@ def init_db(db_path: Optional[Path] = None):
     );
     """)
 
+    # 9. cover_letters (JobRight & ScaleJobs style tailored cover letters)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS cover_letters (
+        id TEXT PRIMARY KEY,
+        job_id TEXT NOT NULL,
+        application_id TEXT,
+        recipient_name TEXT,
+        recipient_email TEXT,
+        cover_letter_text TEXT NOT NULL,
+        cover_letter_html TEXT NOT NULL,
+        generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(job_id) REFERENCES jobs(id) ON DELETE CASCADE
+    );
+    """)
+
+    # 10. user_preferences (ScaleJobs & JobRight predefined configuration)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS user_preferences (
+        id TEXT PRIMARY KEY,
+        target_titles_json TEXT, -- JSON array of target titles
+        min_salary INTEGER DEFAULT 180000,
+        location_preferences_json TEXT, -- JSON array of preferred locations
+        remote_only INTEGER DEFAULT 1,
+        visa_status TEXT DEFAULT 'US Citizen',
+        blacklisted_companies_json TEXT, -- JSON array of company names to skip
+        max_daily_applications INTEGER DEFAULT 15,
+        pacing_mode TEXT DEFAULT 'balanced', -- balanced, aggressive, conservative
+        auto_tailor_threshold INTEGER DEFAULT 70,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+
+    # Seed default user preferences if not present
+    cursor.execute("SELECT COUNT(*) as c FROM user_preferences")
+    if cursor.fetchone()["c"] == 0:
+        cursor.execute("""
+        INSERT INTO user_preferences (
+            id, target_titles_json, min_salary, location_preferences_json,
+            remote_only, visa_status, blacklisted_companies_json,
+            max_daily_applications, pacing_mode, auto_tailor_threshold
+        ) VALUES (
+            'default_preferences',
+            '["Principal AI Product Manager", "Lead AI/ML PM", "Director of Product", "Senior Product Leader", "Fintech PM"]',
+            180000,
+            '["Remote", "San Francisco, CA", "Bay Area, CA"]',
+            1,
+            'US Citizen',
+            '["Revature", "CyberCoders", "Dice Spam Corp"]',
+            15,
+            'balanced',
+            70
+        )
+        """)
+
     conn.commit()
     conn.close()
 
@@ -402,12 +406,101 @@ def get_profile(profile_id: str = "default_profile", db_path: Optional[Path] = N
         d["custom_field_answers"] = {}
     return d
 
+def get_preferences(pref_id: str = "default_preferences", db_path: Optional[Path] = None) -> Dict[str, Any]:
+    conn = get_connection(db_path)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM user_preferences WHERE id = ?", (pref_id,))
+    row = cursor.fetchone()
+    conn.close()
+    if not row:
+        return {
+            "id": pref_id,
+            "target_titles": ["Principal AI Product Manager", "Lead AI/ML PM", "Director of Product", "Fintech PM"],
+            "min_salary": 180000,
+            "location_preferences": ["Remote", "San Francisco, CA"],
+            "remote_only": True,
+            "visa_status": "US Citizen",
+            "blacklisted_companies": ["Revature", "CyberCoders"],
+            "max_daily_applications": 15,
+            "pacing_mode": "balanced",
+            "auto_tailor_threshold": 70
+        }
+    d = dict(row)
+    return {
+        "id": d["id"],
+        "target_titles": json.loads(d.get("target_titles_json") or "[]"),
+        "min_salary": d.get("min_salary", 180000),
+        "location_preferences": json.loads(d.get("location_preferences_json") or "[]"),
+        "remote_only": bool(d.get("remote_only", 1)),
+        "visa_status": d.get("visa_status", "US Citizen"),
+        "blacklisted_companies": json.loads(d.get("blacklisted_companies_json") or "[]"),
+        "max_daily_applications": d.get("max_daily_applications", 15),
+        "pacing_mode": d.get("pacing_mode", "balanced"),
+        "auto_tailor_threshold": d.get("auto_tailor_threshold", 70)
+    }
+
+def upsert_preferences(pref_data: Dict[str, Any], db_path: Optional[Path] = None):
+    conn = get_connection(db_path)
+    cursor = conn.cursor()
+    cursor.execute("""
+    INSERT OR REPLACE INTO user_preferences (
+        id, target_titles_json, min_salary, location_preferences_json,
+        remote_only, visa_status, blacklisted_companies_json,
+        max_daily_applications, pacing_mode, auto_tailor_threshold, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        pref_data.get("id", "default_preferences"),
+        json.dumps(pref_data.get("target_titles", [])),
+        int(pref_data.get("min_salary", 180000)),
+        json.dumps(pref_data.get("location_preferences", [])),
+        1 if pref_data.get("remote_only", True) else 0,
+        pref_data.get("visa_status", "US Citizen"),
+        json.dumps(pref_data.get("blacklisted_companies", [])),
+        int(pref_data.get("max_daily_applications", 15)),
+        pref_data.get("pacing_mode", "balanced"),
+        int(pref_data.get("auto_tailor_threshold", 70)),
+        datetime.utcnow().isoformat()
+    ))
+    conn.commit()
+    conn.close()
+
+def save_cover_letter(
+    job_id: str,
+    cover_letter_text: str,
+    cover_letter_html: str,
+    recipient_name: Optional[str] = None,
+    recipient_email: Optional[str] = None,
+    application_id: Optional[str] = None,
+    db_path: Optional[Path] = None
+) -> str:
+    conn = get_connection(db_path)
+    cursor = conn.cursor()
+    cl_id = f"cl_{job_id}"
+    cursor.execute("""
+    INSERT OR REPLACE INTO cover_letters (
+        id, job_id, application_id, recipient_name, recipient_email,
+        cover_letter_text, cover_letter_html, generated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        cl_id, job_id, application_id, recipient_name, recipient_email,
+        cover_letter_text, cover_letter_html, datetime.utcnow().isoformat()
+    ))
+    conn.commit()
+    conn.close()
+    return cl_id
+
+def get_cover_letter(job_id: str, db_path: Optional[Path] = None) -> Optional[Dict[str, Any]]:
+    conn = get_connection(db_path)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM cover_letters WHERE job_id = ? ORDER BY generated_at DESC LIMIT 1", (job_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
 ```
 
----
-
 ## File: `src/llm.py`
-
 ```python
 """
 LLM Interface for ApexApply Job Agent
@@ -666,10 +759,7 @@ Job Description:
 
 ```
 
----
-
 ## File: `src/ingestion.py`
-
 ```python
 """
 Ingestion Service for ApexApply Job Agent
@@ -851,10 +941,7 @@ class IngestionService:
 
 ```
 
----
-
 ## File: `src/extraction.py`
-
 ```python
 """
 Requirement Extraction Engine for ApexApply Job Agent
@@ -969,19 +1056,18 @@ class RequirementExtractionEngine:
 
 ```
 
----
-
 ## File: `src/scoring.py`
-
 ```python
 """
-ATS Match Scorer for ApexApply Job Agent
-========================================
-Calculates honest ATS match scores based on candidate true qualifications vs JD requirements.
-Never masks skill gaps with artificial inflation.
+ATS Match Scorer & JobRight-Style Multi-Dimensional Breakdown
+=============================================================
+Calculates honest ATS match scores and generates structured analytics:
+- "Why You Match" (Strengths, Core Competencies, Experience Fit)
+- "Skills Gap & Radar" (Unheld requirements & actionable interview prep advice)
+- Salary Fit & Remote Alignment Matrix
 """
 
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 
 class MatchScorer:
     def __init__(self, match_threshold: int = 70):
@@ -1032,12 +1118,93 @@ class MatchScorer:
 
         return final_score, matched_required, skills_gap
 
+    def generate_match_breakdown(
+        self,
+        candidate_skills: List[str],
+        candidate_years: int,
+        candidate_target_salary: int,
+        job: Dict[str, Any],
+        job_requirements: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Generates rich, multi-dimensional JobRight-style match diagnostics.
+        """
+        required_skills = job_requirements.get("required_skills", [])
+        nice_to_have = job_requirements.get("nice_to_have_skills", [])
+        ats_keywords = job_requirements.get("keywords_for_ats", [])
+        min_years = job_requirements.get("min_years_experience", 5)
+
+        score, matched_skills, skills_gap = self.calculate_match(
+            candidate_skills=candidate_skills,
+            required_skills=required_skills,
+            nice_to_have_skills=nice_to_have,
+            keywords_for_ats=ats_keywords
+        )
+
+        # Rating badge
+        if score >= 85:
+            rating_badge = "STRONG_MATCH"
+            badge_label = "🎯 Strong Fit"
+            badge_color = "#10b981"
+        elif score >= 70:
+            rating_badge = "GOOD_MATCH"
+            badge_label = "✅ Good Fit"
+            badge_color = "#3b82f6"
+        elif score >= 50:
+            rating_badge = "BORDERLINE"
+            badge_label = "⚠️ Borderline"
+            badge_color = "#f59e0b"
+        else:
+            rating_badge = "POOR_FIT"
+            badge_label = "❌ Low Match"
+            badge_color = "#ef4444"
+
+        # Why You Match points
+        why_you_match = []
+        if candidate_years >= min_years:
+            why_you_match.append(f"Seniority: {candidate_years}+ years experience exceeds the {min_years}+ year requirement.")
+        if matched_skills:
+            top_3 = ", ".join(matched_skills[:3])
+            why_you_match.append(f"Key Tech Alignment: Direct verified mastery in {top_3}.")
+        why_you_match.append("Track Record: Demonstrated ROI scaling AI platforms ($900K savings) and $10M+ enterprise risk modernizations.")
+
+        # Skills Gap & Mitigation Advice
+        gap_advice = "No critical skills gap detected; candidate profiles strongly for this role."
+        if skills_gap:
+            gap_str = ", ".join(skills_gap[:3])
+            gap_advice = f"To mitigate gap in [{gap_str}], emphasize foundational architectural agility and fast learning cycles during interviews."
+
+        # Salary Fit Analysis
+        salary_fit = "Competitive / Undisclosed Range"
+        salary_str = job.get("salary_range") or ""
+        if salary_str:
+            salary_fit = f"Posted: {salary_str} (Candidate Target: ${candidate_target_salary:,}+)"
+
+        # Remote Fit Analysis
+        remote_flag = job.get("remote_flag", 0)
+        location = job.get("location") or "Remote"
+        if remote_flag or "remote" in location.lower():
+            remote_fit = "🌐 100% Remote Match"
+        else:
+            remote_fit = f"📍 Location: {location}"
+
+        return {
+            "overall_score": score,
+            "rating_badge": rating_badge,
+            "badge_label": badge_label,
+            "badge_color": badge_color,
+            "matched_skills": matched_skills,
+            "skills_gap": skills_gap,
+            "why_you_match": why_you_match,
+            "gap_mitigation_advice": gap_advice,
+            "salary_fit": salary_fit,
+            "remote_fit": remote_fit,
+            "experience_match": f"{candidate_years} yrs vs {min_years} yrs required"
+        }
+
 ```
 
----
-
 ## File: `src/tailoring.py`
-
 ```python
 """
 Deep Resume Tailoring Engine for ApexApply Job Agent
@@ -1380,8 +1547,18 @@ EDUCATION & CERTIFICATIONS
         conn.commit()
         conn.close()
 
+        # Also generate bespoke tailored Cover Letter (JobRight & ScaleJobs style)
+        cover_letter_res = self.generate_cover_letter(
+            job_id=job_id,
+            base_resume=base_resume,
+            job=job,
+            reqs=req,
+            matched_skills=matched_skills,
+            match_score=match_score
+        )
+
         log_audit("RESUME_TAILORED", "SUCCESS", job_id,
-                  f"Tailored resume generated for {company} (Match Score: {match_score}%, Gaps: {len(skills_gap)})",
+                  f"Tailored resume and cover letter generated for {company} (Match Score: {match_score}%, Gaps: {len(skills_gap)})",
                   self.db_path)
 
         return {
@@ -1391,238 +1568,154 @@ EDUCATION & CERTIFICATIONS
             "match_score": match_score,
             "skills_matched": matched_skills,
             "skills_gap": skills_gap,
-            "tailored_summary": tailored_summary
+            "tailored_summary": tailored_summary,
+            "cover_letter": cover_letter_res
         }
 
-```
-
----
-
-## File: `src/field_taxonomy.py`
-
-```python
-"""
-Field Taxonomy Service for ApexApply Job Agent
-==============================================
-Manages discovered form fields per platform type and maps them to candidate profile data.
-"""
-
-import json
-from pathlib import Path
-from typing import Dict, List, Any, Optional
-from datetime import datetime
-
-from src.db import get_connection, log_audit
-
-class FieldTaxonomyService:
-    def __init__(self, db_path: Optional[Path] = None):
-        self.db_path = db_path
-
-    def register_field(
+    def generate_cover_letter(
         self,
-        platform_type: str,
-        field_name: str,
-        field_type: str,
-        maps_to_profile_field: Optional[str] = None,
-        is_required: bool = False,
-        sample_values: Optional[List[str]] = None
+        job_id: str,
+        base_resume: Dict[str, Any],
+        job: Dict[str, Any],
+        reqs: Dict[str, Any],
+        matched_skills: List[str],
+        match_score: int
     ) -> Dict[str, Any]:
-        """Registers a discovered field into field_taxonomy table."""
-        conn = get_connection(self.db_path)
-        cursor = conn.cursor()
-        field_id = f"ft_{platform_type}_{field_name.lower().replace(' ', '_')}"
+        """Generates a bespoke, STAR-aligned executive cover letter for the role."""
+        company = job.get("company", "Target Company")
+        title = job.get("title", "Product Leader")
+        recipient = job.get("contact_person") or reqs.get("contact_person") or "Hiring Team"
+        recipient_email = job.get("contact_email") or reqs.get("contact_email")
 
-        cursor.execute("""
-        INSERT OR REPLACE INTO field_taxonomy (
-            id, platform_type, field_name, field_type, maps_to_profile_field,
-            is_required, sample_values, last_seen_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            field_id,
-            platform_type,
-            field_name,
-            field_type,
-            maps_to_profile_field or self.infer_profile_mapping(field_name),
-            1 if is_required else 0,
-            json.dumps(sample_values or []),
-            datetime.utcnow().isoformat()
-        ))
+        cl_dir = self.data_dir / "cover_letters"
+        cl_dir.mkdir(parents=True, exist_ok=True)
 
-        conn.commit()
-        conn.close()
+        salutation = f"Dear {recipient}," if recipient != "Hiring Team" else f"Dear {company} Hiring Team,"
+        top_skills_str = ", ".join(matched_skills[:3]) if matched_skills else "AI/ML Product Leadership and Platform Modernization"
 
-        return {
-            "id": field_id,
-            "platform_type": platform_type,
-            "field_name": field_name,
-            "field_type": field_type,
-            "maps_to_profile_field": maps_to_profile_field or self.infer_profile_mapping(field_name),
-            "is_required": is_required
-        }
+        text_content = f"""Manish Shukla
+Tracy, CA | (209) 319-8716 | shukla.manish80@gmail.com | linkedin.com/in/mshukla1 | manishshukla.dev
 
-    def infer_profile_mapping(self, field_label: str) -> Optional[str]:
-        """Heuristic mapping from label text to standard profile keys."""
-        l = field_label.lower()
-        if "first name" in l or "given name" in l:
-            return "first_name"
-        elif "last name" in l or "family name" in l or "surname" in l:
-            return "last_name"
-        elif "full name" in l or "name" in l:
-            return "full_name"
-        elif "email" in l:
-            return "email"
-        elif "phone" in l or "mobile" in l:
-            return "phone"
-        elif "linkedin" in l:
-            return "linkedin_url"
-        elif "portfolio" in l or "website" in l or "github" in l:
-            return "portfolio_url"
-        elif "address" in l or "location" in l or "city" in l:
-            return "address"
-        elif "authorized" in l or "sponsorship" in l or "visa" in l or "legal" in l:
-            return "work_authorization"
-        elif "salary" in l or "compensation" in l:
-            return "salary_expectation"
-        elif "years" in l and "experience" in l:
-            return "years_experience"
-        elif "why" in l and ("join" in l or "work" in l or "company" in l or "role" in l):
-            return "why_join"
-        elif "resume" in l or "cv" in l:
-            return "resume_file"
-        return None
+{datetime.utcnow().strftime('%B %d, %Y')}
 
-    def get_taxonomy_for_platform(self, platform_type: str) -> List[Dict[str, Any]]:
-        """Fetch all known fields for a platform."""
-        conn = get_connection(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM field_taxonomy WHERE platform_type = ?", (platform_type,))
-        rows = cursor.fetchall()
-        conn.close()
-        results = []
-        for r in rows:
-            d = dict(r)
-            d["sample_values"] = json.loads(d.get("sample_values") or "[]")
-            results.append(d)
-        return results
+{salutation}
 
-    def get_all_taxonomy(self) -> List[Dict[str, Any]]:
-        """Fetch full taxonomy catalog."""
-        conn = get_connection(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM field_taxonomy ORDER BY platform_type, field_name")
-        rows = cursor.fetchall()
-        conn.close()
-        return [dict(r) for r in rows]
+I am writing to express my strong enthusiasm for the {title} position at {company}. With over 15 years of experience leading enterprise AI/ML platforms, high-throughput financial architectures, and intelligent workflow automations, I have spent my career translating complex technical innovations into scalable, multi-million dollar business outcomes. {company}'s strategic focus on excellence and innovation directly aligns with my passion for building high-impact products.
 
-    def seed_standard_taxonomy(self):
-        """Seeds standard taxonomy for Greenhouse, Lever, Workday, LinkedIn."""
-        platforms = ["greenhouse", "lever", "workday", "linkedin", "custom"]
-        standard_fields = [
-            ("First Name", "text", "first_name", True),
-            ("Last Name", "text", "last_name", True),
-            ("Email", "text", "email", True),
-            ("Phone", "text", "phone", True),
-            ("Resume/CV", "file", "resume_file", True),
-            ("LinkedIn Profile", "text", "linkedin_url", True),
-            ("Portfolio / Website", "text", "portfolio_url", False),
-            ("Are you authorized to work in the US?", "dropdown", "work_authorization", True),
-            ("Will you now or in the future require sponsorship?", "dropdown", "work_authorization", True),
-            ("Desired Salary", "text", "salary_expectation", False),
-            ("Why do you want to work here?", "textarea", "why_join", False)
-        ]
-        for p in platforms:
-            for name, ftype, mapping, req in standard_fields:
-                self.register_field(p, name, ftype, mapping, req)
+Throughout my career, I have consistently driven measurable ROI across mission-critical platforms:
+• Enterprise AI/ML Innovation: Scaled enterprise GenAI/LLM pipelines utilizing LangChain and vector search, slashing document intake times by 74% and generating $900K in recurring annual operational savings.
+• Multi-Million Dollar Modernizations: Spearheaded a $10M+ digital risk transformation at Charles Schwab, replacing legacy monoliths with unified Appian architectures supporting 5M+ daily transactions at 99.99% availability.
+• Fintech Dispute Automation: Directed end-to-end automation across Zelle and EWS fraud detection workflows, reducing manual reviews by 90% and saving $500K+ annually.
 
-```
+I am particularly excited about how my background in {top_skills_str} can immediately accelerate {company}'s product roadmap. I pride myself on bridging cross-functional engineering teams with executive business priorities to ship robust, reliable software.
 
----
+Thank you for your time and consideration. I welcome the opportunity to discuss how my experience and track record will deliver immediate value to {company}.
 
-## File: `src/mapper.py`
+Sincerely,
 
-```python
-"""
-Application Field Mapper for ApexApply Job Agent
-================================================
-Maps candidate profile values and custom question answers to discovered ATS form fields.
+Manish Shukla
+(209) 319-8716
+shukla.manish80@gmail.com
 """
 
-from typing import Dict, List, Any, Optional
+        html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Cover Letter — Manish Shukla ({company})</title>
+  <style>
+    @page {{ margin: 0.75in; size: letter; }}
+    body {{
+      font-family: 'Helvetica Neue', Arial, sans-serif;
+      color: #1a1a1a;
+      background: #ffffff;
+      margin: 0;
+      padding: 32px 40px;
+      line-height: 1.55;
+      font-size: 13.5px;
+    }}
+    .header {{ text-align: center; border-bottom: 2px solid #0f172a; padding-bottom: 12px; margin-bottom: 20px; }}
+    .header h1 {{ margin: 0 0 4px 0; font-size: 22px; color: #0f172a; letter-spacing: -0.5px; }}
+    .header-sub {{ font-size: 12.5px; font-weight: 600; color: #0284c7; margin-bottom: 4px; }}
+    .contact {{ font-size: 11.5px; color: #475569; }}
+    .date-row {{ margin-bottom: 16px; color: #64748b; font-size: 12px; }}
+    .salutation {{ font-weight: 700; color: #0f172a; margin-bottom: 14px; font-size: 14px; }}
+    p {{ margin-bottom: 12px; text-align: justify; }}
+    ul {{ margin: 6px 0 14px 20px; padding: 0; }}
+    li {{ margin-bottom: 6px; font-size: 13px; color: #334155; text-align: justify; }}
+    .highlight-card {{
+      background: #f0f9ff;
+      border-left: 3px solid #0284c7;
+      padding: 10px 14px;
+      margin: 14px 0;
+      font-size: 12.5px;
+      color: #0369a1;
+    }}
+    .closing {{ margin-top: 24px; font-weight: 600; color: #0f172a; }}
+    .signature {{ margin-top: 16px; font-size: 14px; font-weight: 700; color: #0f172a; }}
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>MANISH SHUKLA</h1>
+    <div class="header-sub">Senior Product Leader • AI/ML & Fintech Platforms</div>
+    <div class="contact">
+      Tracy, CA &bull; (209) 319-8716 &bull; shukla.manish80@gmail.com &bull; linkedin.com/in/mshukla1 &bull; manishshukla.dev
+    </div>
+  </div>
 
-class ApplicationFieldMapper:
-    def __init__(self, profile: Dict[str, Any]):
-        self.profile = profile
+  <div class="date-row">{datetime.utcnow().strftime('%B %d, %Y')}</div>
+  <div class="salutation">{salutation}</div>
 
-    def map_fields(self, discovered_fields: List[Dict[str, Any]], tailored_resume_path: str = "") -> Dict[str, Any]:
-        """
-        Maps list of discovered form fields to profile data.
-        Returns:
-            {
-                "mapped_fields": { field_name: value },
-                "missing_required": [ field_name ],
-                "ready_to_fill": bool
-            }
-        """
-        mapped = {}
-        missing_required = []
+  <p>I am writing to express my strong enthusiasm for the <strong>{title}</strong> position at <strong>{company}</strong>. With over 15 years of experience leading enterprise AI/ML platforms, high-throughput financial architectures, and intelligent workflow automations, I have spent my career translating complex technical innovations into scalable, multi-million dollar business outcomes. {company}'s strategic focus on excellence and innovation directly aligns with my passion for building high-impact products.</p>
 
-        first_name = self.profile.get("first_name") or self.profile.get("full_name", "Manish Shukla").split()[0]
-        last_name = self.profile.get("last_name") or self.profile.get("full_name", "Manish Shukla").split()[-1]
-        custom_answers = self.profile.get("custom_field_answers", {})
+  <div class="highlight-card">
+    <strong>ATS Match Rating: {match_score}%</strong> &bull; Targeted Core Capabilities: {top_skills_str}
+  </div>
 
-        for f in discovered_fields:
-            name = f["field_name"]
-            mapping_key = f.get("maps_to_profile_field") or ""
-            is_req = f.get("is_required", False)
+  <p>Throughout my career, I have consistently delivered measurable ROI across mission-critical platforms:</p>
+  <ul>
+    <li><strong>Enterprise AI/ML Innovation:</strong> Scaled enterprise GenAI/LLM pipelines utilizing LangChain and vector search, slashing document intake times by 74% and generating $900K in recurring annual operational savings.</li>
+    <li><strong>Multi-Million Dollar Modernizations:</strong> Spearheaded a $10M+ digital risk transformation at Charles Schwab, replacing legacy monoliths with unified Appian architectures supporting 5M+ daily transactions at 99.99% availability.</li>
+    <li><strong>Fintech Dispute Automation:</strong> Directed end-to-end automation across Zelle and EWS fraud detection workflows, reducing manual reviews by 90% and saving $500K+ annually.</li>
+  </ul>
 
-            val = None
-            if mapping_key == "first_name":
-                val = first_name
-            elif mapping_key == "last_name":
-                val = last_name
-            elif mapping_key == "full_name":
-                val = self.profile.get("full_name", "Manish Shukla")
-            elif mapping_key == "email":
-                val = self.profile.get("email", "shukla.manish80@gmail.com")
-            elif mapping_key == "phone":
-                val = self.profile.get("phone", "(209) 319-8716")
-            elif mapping_key == "linkedin_url":
-                val = self.profile.get("linkedin_url", "https://linkedin.com/in/mshukla1")
-            elif mapping_key == "portfolio_url":
-                val = self.profile.get("portfolio_url", "https://manishshukla.dev")
-            elif mapping_key == "address":
-                val = self.profile.get("address", "Tracy, CA")
-            elif mapping_key == "work_authorization":
-                val = self.profile.get("work_authorization", "Yes")
-            elif mapping_key == "salary_expectation":
-                val = self.profile.get("salary_expectation", "$180,000 - $220,000")
-            elif mapping_key == "years_experience":
-                val = str(self.profile.get("years_experience", 15))
-            elif mapping_key == "resume_file":
-                val = tailored_resume_path
-            elif mapping_key == "why_join":
-                val = custom_answers.get("why_join", "Passionate about scaling high-impact AI/ML platforms and workflow automations.")
-            else:
-                # Custom answer check
-                val = custom_answers.get(name) or custom_answers.get(name.lower())
+  <p>I am particularly excited about how my background in <strong>{top_skills_str}</strong> can immediately accelerate {company}'s product roadmap. I pride myself on bridging cross-functional engineering teams with executive business priorities to ship robust, reliable software.</p>
 
-            if val is not None:
-                mapped[name] = val
-            elif is_req:
-                missing_required.append(name)
+  <p>Thank you for your time and consideration. I welcome the opportunity to discuss how my experience and track record will deliver immediate value to {company}.</p>
+
+  <div class="closing">Sincerely,</div>
+  <div class="signature">Manish Shukla</div>
+  <div style="font-size:12px;color:#64748b;margin-top:4px;">(209) 319-8716 &bull; shukla.manish80@gmail.com</div>
+</body>
+</html>
+"""
+        cl_file = cl_dir / f"cover_letter_{job_id}.html"
+        with open(cl_file, "w", encoding="utf-8") as f:
+            f.write(html_content)
+
+        from src.db import save_cover_letter
+        save_cover_letter(
+            job_id=job_id,
+            cover_letter_text=text_content,
+            cover_letter_html=html_content,
+            recipient_name=recipient,
+            recipient_email=recipient_email,
+            db_path=self.db_path
+        )
 
         return {
-            "mapped_fields": mapped,
-            "missing_required": missing_required,
-            "ready_to_fill": len(missing_required) == 0
+            "job_id": job_id,
+            "recipient_name": recipient,
+            "recipient_email": recipient_email,
+            "cover_letter_text": text_content,
+            "file_path": str(cl_file)
         }
 
-```
 
----
+```
 
 ## File: `src/executor.py`
-
 ```python
 """
 Application Executor for ApexApply Job Agent
@@ -1770,10 +1863,7 @@ class ApplicationExecutor:
 
 ```
 
----
-
 ## File: `src/orchestrator.py`
-
 ```python
 """
 Orchestrator for ApexApply Job Agent
@@ -1845,7 +1935,33 @@ class JobAgentOrchestrator:
         return profile
 
     def run_pipeline_for_job(self, job_id: str, auto_submit: Optional[bool] = None) -> Dict[str, Any]:
-        """Runs full pipeline for a single job."""
+        """Runs full pipeline for a single job with preference and blacklist checks."""
+        from src.db import get_preferences
+        prefs = get_preferences(db_path=self.db_path)
+
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM jobs WHERE id = ?", (job_id,))
+        job_row = cursor.fetchone()
+        conn.close()
+
+        if not job_row:
+            return {"job_id": job_id, "status": "FAILED", "error": "Job not found"}
+        
+        job = dict(job_row)
+        company = job.get("company", "").lower()
+        blacklisted = [b.lower() for b in prefs.get("blacklisted_companies", [])]
+
+        # 0. Blacklist Check (ScaleJobs style)
+        if any(b in company for b in blacklisted if b):
+            conn = get_connection(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("UPDATE jobs SET status = 'SKIPPED' WHERE id = ?", (job_id,))
+            conn.commit()
+            conn.close()
+            log_audit("JOB_SKIPPED", "WARNING", job_id, f"Company '{job.get('company')}' is in user blacklist", self.db_path)
+            return {"job_id": job_id, "status": "SKIPPED", "reason": "Blacklisted company"}
+
         if auto_submit is None:
             auto_submit = (self.default_submission_mode == "auto")
 
@@ -1854,21 +1970,22 @@ class JobAgentOrchestrator:
         if not reqs:
             return {"job_id": job_id, "status": "FAILED", "error": "Extraction failed"}
 
-        # 2. Tailoring & Scoring
+        # 2. Tailoring & Scoring & Cover Letter
         tailored = self.tailoring.tailor_for_job(job_id)
         if not tailored:
             return {"job_id": job_id, "status": "FAILED", "error": "Tailoring failed"}
 
         score = tailored["match_score"]
+        threshold = prefs.get("auto_tailor_threshold", self.borderline_threshold)
 
         # 3. Decision Threshold
-        if score < self.borderline_threshold:
+        if score < threshold:
             conn = get_connection(self.db_path)
             cursor = conn.cursor()
             cursor.execute("UPDATE jobs SET status = 'SKIPPED' WHERE id = ?", (job_id,))
             conn.commit()
             conn.close()
-            log_audit("JOB_SKIPPED", "WARNING", job_id, f"Match score ({score}%) below threshold ({self.borderline_threshold}%)", self.db_path)
+            log_audit("JOB_SKIPPED", "WARNING", job_id, f"Match score ({score}%) below threshold ({threshold}%)", self.db_path)
             return {"job_id": job_id, "status": "SKIPPED", "match_score": score, "reason": "Low match score"}
 
         # 4. Execution
@@ -1879,7 +1996,8 @@ class JobAgentOrchestrator:
             "job_id": job_id,
             "status": app_result["status"] if app_result else "FAILED",
             "match_score": score,
-            "application": app_result
+            "application": app_result,
+            "cover_letter": tailored.get("cover_letter")
         }
 
     def run_batch_pipeline(self, max_jobs: int = 15, auto_submit: Optional[bool] = None) -> List[Dict[str, Any]]:
@@ -1909,59 +2027,7 @@ class JobAgentOrchestrator:
 
 ```
 
----
-
-## File: `src/handlers/base_handler.py`
-
-```python
-"""
-Base Handler Interface for Platform-Specific Form Automation
-============================================================
-All ATS platform handlers (Greenhouse, Lever, Workday, LinkedIn, Generic) implement this interface.
-"""
-
-from abc import ABC, abstractmethod
-from typing import Dict, List, Any, Optional
-from dataclasses import dataclass
-
-@dataclass
-class FillResult:
-    status: str  # DRAFT, PENDING_REVIEW, SUBMITTED, FAILED, CAPTCHA_BLOCKED
-    platform_type: str
-    fields_filled: Dict[str, Any]
-    screenshot_path: Optional[str] = None
-    captcha_detected: bool = False
-    submission_mode: str = "manual_confirm"
-    error_message: Optional[str] = None
-
-class BaseHandler(ABC):
-    def __init__(self, platform_name: str):
-        self.platform_name = platform_name
-
-    @abstractmethod
-    def discover_fields(self, url: str, html_content: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Scans page DOM to discover form fields without submitting."""
-        pass
-
-    @abstractmethod
-    def fill_form(
-        self,
-        job: Dict[str, Any],
-        tailored_resume_path: str,
-        profile: Dict[str, Any],
-        screenshot_path: str,
-        auto_submit: bool = False,
-        html_fixture: Optional[str] = None
-    ) -> FillResult:
-        """Fills form fields, captures screenshot before submit, and submits if auto_submit=True (Mode B)."""
-        pass
-
-```
-
----
-
 ## File: `src/handlers/greenhouse.py`
-
 ```python
 """
 Greenhouse Platform Handler
@@ -2111,10 +2177,7 @@ class GreenhouseHandler(BaseHandler):
 
 ```
 
----
-
 ## File: `src/handlers/lever.py`
-
 ```python
 """
 Lever Platform Handler
@@ -2247,131 +2310,7 @@ class LeverHandler(BaseHandler):
 
 ```
 
----
-
-## File: `src/handlers/workday.py`
-
-```python
-"""
-Workday Platform Handler
-========================
-Handles multi-step Workday career portals in Mode A (manual review).
-"""
-
-from pathlib import Path
-from typing import Dict, List, Any, Optional
-
-from src.handlers.base_handler import BaseHandler, FillResult
-from src.mapper import ApplicationFieldMapper
-
-class WorkdayHandler(BaseHandler):
-    def __init__(self):
-        super().__init__("workday")
-
-    def discover_fields(self, url: str, html_content: Optional[str] = None) -> List[Dict[str, Any]]:
-        return [
-            {"field_name": "First Name", "field_type": "text", "maps_to_profile_field": "first_name", "is_required": True},
-            {"field_name": "Last Name", "field_type": "text", "maps_to_profile_field": "last_name", "is_required": True},
-            {"field_name": "Address", "field_type": "text", "maps_to_profile_field": "address", "is_required": True},
-            {"field_name": "Email", "field_type": "text", "maps_to_profile_field": "email", "is_required": True},
-            {"field_name": "Phone", "field_type": "text", "maps_to_profile_field": "phone", "is_required": True},
-            {"field_name": "Resume/CV Document", "field_type": "file", "maps_to_profile_field": "resume_file", "is_required": True},
-            {"field_name": "Work Authorization Status", "field_type": "dropdown", "maps_to_profile_field": "work_authorization", "is_required": True}
-        ]
-
-    def fill_form(
-        self,
-        job: Dict[str, Any],
-        tailored_resume_path: str,
-        profile: Dict[str, Any],
-        screenshot_path: str,
-        auto_submit: bool = False,
-        html_fixture: Optional[str] = None
-    ) -> FillResult:
-        # Workday always enforces Mode A manual confirm for safety
-        discovered = self.discover_fields(job.get("posting_url", ""))
-        mapper = ApplicationFieldMapper(profile)
-        mapping_result = mapper.map_fields(discovered, tailored_resume_path=tailored_resume_path)
-
-        Path(screenshot_path).parent.mkdir(parents=True, exist_ok=True)
-        if not Path(screenshot_path).exists():
-            with open(screenshot_path, "w", encoding="utf-8") as f:
-                f.write(f"[Screenshot Placeholder: Workday multi-step form for {job.get('company')}]")
-
-        return FillResult(
-            status="PENDING_REVIEW",
-            platform_type=self.platform_name,
-            fields_filled=mapping_result["mapped_fields"],
-            screenshot_path=screenshot_path,
-            submission_mode="manual_confirm"
-        )
-
-```
-
----
-
-## File: `src/handlers/linkedin_easy_apply.py`
-
-```python
-"""
-LinkedIn Easy Apply Platform Handler
-====================================
-Automates LinkedIn Easy Apply steps in Mode A (human confirms submit).
-"""
-
-from pathlib import Path
-from typing import Dict, List, Any, Optional
-
-from src.handlers.base_handler import BaseHandler, FillResult
-from src.mapper import ApplicationFieldMapper
-
-class LinkedInEasyApplyHandler(BaseHandler):
-    def __init__(self):
-        super().__init__("linkedin")
-
-    def discover_fields(self, url: str, html_content: Optional[str] = None) -> List[Dict[str, Any]]:
-        return [
-            {"field_name": "Full Name", "field_type": "text", "maps_to_profile_field": "full_name", "is_required": True},
-            {"field_name": "Email", "field_type": "text", "maps_to_profile_field": "email", "is_required": True},
-            {"field_name": "Phone Country Code", "field_type": "text", "maps_to_profile_field": "phone", "is_required": True},
-            {"field_name": "Mobile Phone Number", "field_type": "text", "maps_to_profile_field": "phone", "is_required": True},
-            {"field_name": "Resume Upload", "field_type": "file", "maps_to_profile_field": "resume_file", "is_required": True},
-            {"field_name": "Years of Experience", "field_type": "text", "maps_to_profile_field": "years_experience", "is_required": True}
-        ]
-
-    def fill_form(
-        self,
-        job: Dict[str, Any],
-        tailored_resume_path: str,
-        profile: Dict[str, Any],
-        screenshot_path: str,
-        auto_submit: bool = False,
-        html_fixture: Optional[str] = None
-    ) -> FillResult:
-        # Decision 4: LinkedIn is permanently Mode A (manual confirm) to avoid account bans
-        discovered = self.discover_fields(job.get("posting_url", ""))
-        mapper = ApplicationFieldMapper(profile)
-        mapping_result = mapper.map_fields(discovered, tailored_resume_path=tailored_resume_path)
-
-        Path(screenshot_path).parent.mkdir(parents=True, exist_ok=True)
-        if not Path(screenshot_path).exists():
-            with open(screenshot_path, "w", encoding="utf-8") as f:
-                f.write(f"[Screenshot Placeholder: LinkedIn Easy Apply for {job.get('company')}]")
-
-        return FillResult(
-            status="PENDING_REVIEW",
-            platform_type=self.platform_name,
-            fields_filled=mapping_result["mapped_fields"],
-            screenshot_path=screenshot_path,
-            submission_mode="manual_confirm"
-        )
-
-```
-
----
-
 ## File: `src/handlers/generic_custom.py`
-
 ```python
 """
 Generic Custom Form Platform Handler
@@ -2495,10 +2434,7 @@ class GenericCustomHandler(BaseHandler):
 
 ```
 
----
-
 ## File: `dashboard/server.py`
-
 ```python
 """
 Dashboard Server for ApexApply Job Agent
@@ -2842,6 +2778,74 @@ def get_screenshot_endpoint(job_id: str):
         return FileResponse(str(default_ss), media_type="image/png")
     raise HTTPException(status_code=404, detail="Screenshot not found")
 
+@app.get("/api/cover-letter/{job_id}")
+def get_cover_letter_endpoint(job_id: str):
+    from src.db import get_cover_letter
+    cl = get_cover_letter(job_id, DB_PATH)
+    if not cl:
+        raise HTTPException(status_code=404, detail="Cover letter not found for this job")
+    return cl
+
+@app.get("/api/match-breakdown/{job_id}")
+def get_match_breakdown_endpoint(job_id: str):
+    from src.scoring import MatchScorer
+    from src.db import get_profile, get_preferences
+    
+    conn = get_connection(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM jobs WHERE id = ?", (job_id,))
+    job_row = cursor.fetchone()
+    if not job_row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    cursor.execute("SELECT * FROM job_requirements WHERE job_id = ?", (job_id,))
+    req_row = cursor.fetchone()
+    conn.close()
+
+    job = dict(job_row)
+    reqs = dict(req_row) if req_row else {}
+    if reqs and isinstance(reqs.get("required_skills"), str):
+        try:
+            reqs["required_skills"] = json.loads(reqs["required_skills"])
+            reqs["nice_to_have_skills"] = json.loads(reqs.get("nice_to_have_skills") or "[]")
+            reqs["keywords_for_ats"] = json.loads(reqs.get("keywords_for_ats") or "[]")
+        except:
+            pass
+
+    profile = get_profile(db_path=DB_PATH) or {}
+    prefs = get_preferences(db_path=DB_PATH)
+
+    candidate_skills = [
+        "Product Leadership", "Product Strategy", "Generative AI", "AI/ML", "LLMs", "RAG",
+        "LangChain", "LlamaIndex", "Vector Databases", "Prompt Engineering", "Python", "SQL",
+        "Appian", "Pega", "Fintech", "Payments", "Zelle & Fraud", "Risk & Compliance", "Agile/Scrum"
+    ]
+
+    scorer = MatchScorer()
+    breakdown = scorer.generate_match_breakdown(
+        candidate_skills=candidate_skills,
+        candidate_years=profile.get("years_experience", 15),
+        candidate_target_salary=prefs.get("min_salary", 180000),
+        job=job,
+        job_requirements=reqs
+    )
+    breakdown["job_id"] = job_id
+    breakdown["company"] = job.get("company")
+    breakdown["title"] = job.get("title")
+    return breakdown
+
+@app.get("/api/preferences")
+def get_preferences_endpoint():
+    from src.db import get_preferences
+    return get_preferences(db_path=DB_PATH)
+
+@app.patch("/api/preferences")
+def update_preferences_endpoint(pref_data: Dict[str, Any]):
+    from src.db import upsert_preferences, get_preferences
+    upsert_preferences(pref_data, db_path=DB_PATH)
+    return {"status": "success", "preferences": get_preferences(db_path=DB_PATH)}
+
 @app.get("/api/resume/preview/{job_id}")
 def preview_resume_endpoint(job_id: str):
     conn = get_connection(DB_PATH)
@@ -2863,642 +2867,7 @@ if __name__ == "__main__":
 
 ```
 
----
-
-## File: `dashboard/app.js`
-
-```javascript
-/**
- * ApexApply Dashboard Controller — Version 2.5
- */
-
-const API_BASE = window.location.origin;
-
-let state = {
-  applications: [],
-  reviewQueue: [],
-  stats: {},
-  profile: {},
-  taxonomy: [],
-  logs: [],
-  search: '',
-  filterStatus: 'all',
-  reviewPeriod: 'all'
-};
-
-document.addEventListener('DOMContentLoaded', () => {
-  setupNavigation();
-  setupEventListeners();
-  loadAll();
-
-  // Polling intervals
-  setInterval(loadStatsAndApps, 4000);
-  setInterval(loadLogs, 2500);
-});
-
-function setupNavigation() {
-  const links = document.querySelectorAll('.nav-link');
-  const views = {
-    'nav-review': document.getElementById('view-review'),
-    'nav-tracker': document.getElementById('view-tracker'),
-    'nav-profile': document.getElementById('view-profile'),
-    'nav-taxonomy': document.getElementById('view-taxonomy'),
-    'nav-logs': document.getElementById('view-logs')
-  };
-
-  links.forEach(link => {
-    link.addEventListener('click', (e) => {
-      e.preventDefault();
-      links.forEach(l => l.classList.remove('active'));
-      link.classList.add('active');
-
-      Object.values(views).forEach(v => { if (v) v.style.display = 'none'; });
-      const target = views[link.id];
-      if (target) target.style.display = 'block';
-
-      if (link.id === 'nav-profile') loadProfile();
-      if (link.id === 'nav-taxonomy') loadTaxonomy();
-      if (link.id === 'nav-review') loadReviewQueue();
-      if (link.id === 'nav-tracker') loadStatsAndApps();
-    });
-  });
-}
-
-function setupEventListeners() {
-  document.getElementById('tracker-search').addEventListener('input', (e) => {
-    state.search = e.target.value.toLowerCase();
-    renderTracker();
-  });
-
-  document.getElementById('tracker-status-filter').addEventListener('change', (e) => {
-    state.filterStatus = e.target.value;
-    renderTracker();
-  });
-
-  document.getElementById('filter-review-all').addEventListener('click', (e) => {
-    document.querySelectorAll('.filter-pill').forEach(p => p.classList.remove('active'));
-    e.target.classList.add('active');
-    state.reviewPeriod = 'all';
-    loadReviewQueue();
-  });
-
-  document.getElementById('filter-review-week').addEventListener('click', (e) => {
-    document.querySelectorAll('.filter-pill').forEach(p => p.classList.remove('active'));
-    e.target.classList.add('active');
-    state.reviewPeriod = 'past_week';
-    loadReviewQueue();
-  });
-
-  document.getElementById('btn-run-batch').addEventListener('click', runBatchPipeline);
-  document.getElementById('btn-save-profile').addEventListener('click', saveProfile);
-
-  // Custom Job Modal
-  const modalCustom = document.getElementById('modal-custom');
-  document.getElementById('btn-open-custom').addEventListener('click', () => modalCustom.style.display = 'flex');
-  document.getElementById('btn-close-custom').addEventListener('click', () => modalCustom.style.display = 'none');
-  document.getElementById('btn-cancel-custom').addEventListener('click', () => modalCustom.style.display = 'none');
-  document.getElementById('btn-submit-custom').addEventListener('click', submitCustomJob);
-
-  // Resume Modal
-  const modalResume = document.getElementById('modal-resume');
-  document.getElementById('btn-close-resume').addEventListener('click', () => modalResume.style.display = 'none');
-  document.getElementById('btn-close-resume-2').addEventListener('click', () => modalResume.style.display = 'none');
-}
-
-async function loadAll() {
-  await Promise.all([
-    loadStatsAndApps(),
-    loadReviewQueue(),
-    loadLogs()
-  ]);
-}
-
-async function loadStatsAndApps() {
-  try {
-    const [statsRes, appsRes] = await Promise.all([
-      fetch(`${API_BASE}/api/stats`),
-      fetch(`${API_BASE}/api/applications`)
-    ]);
-
-    if (statsRes.ok) {
-      state.stats = await statsRes.json();
-      renderStats(state.stats);
-    }
-
-    if (appsRes.ok) {
-      const data = await appsRes.json();
-      state.applications = data.applications || [];
-      renderTracker();
-    }
-  } catch (err) {
-    console.error('Error fetching data:', err);
-  }
-}
-
-async function loadReviewQueue() {
-  try {
-    const res = await fetch(`${API_BASE}/api/review-queue?period=${state.reviewPeriod}`);
-    if (res.ok) {
-      const data = await res.json();
-      state.reviewQueue = data.applications || [];
-      document.getElementById('badge-review-count').textContent = state.reviewQueue.length;
-      renderReviewQueue();
-    }
-  } catch (err) {
-    console.error('Error fetching review queue:', err);
-  }
-}
-
-async function loadLogs() {
-  try {
-    const res = await fetch(`${API_BASE}/api/logs`);
-    if (res.ok) {
-      const data = await res.json();
-      state.logs = data.logs || [];
-      renderLogs();
-    }
-  } catch (err) {
-    console.error('Error fetching logs:', err);
-  }
-}
-
-async function loadProfile() {
-  try {
-    const res = await fetch(`${API_BASE}/api/profile`);
-    if (res.ok) {
-      state.profile = await res.json();
-      renderProfileEditor();
-    }
-  } catch (err) {
-    console.error('Error fetching profile:', err);
-  }
-}
-
-async function loadTaxonomy() {
-  try {
-    const res = await fetch(`${API_BASE}/api/taxonomy`);
-    if (res.ok) {
-      const data = await res.json();
-      state.taxonomy = data.taxonomy || [];
-      renderTaxonomy();
-    }
-  } catch (err) {
-    console.error('Error fetching taxonomy:', err);
-  }
-}
-
-function renderStats(stats) {
-  document.getElementById('stat-pending').textContent = stats.pending_review || 0;
-  document.getElementById('stat-submitted').textContent = stats.submitted || 0;
-  document.getElementById('stat-avg-score').textContent = `${stats.average_match_score || 0}%`;
-  document.getElementById('stat-total-jobs').textContent = stats.total_jobs_scraped || 0;
-}
-
-function formatScrapedDate(dateStr) {
-  if (!dateStr) return 'Scraped recently';
-  try {
-    const d = new Date(dateStr.replace(' ', 'T'));
-    const now = new Date();
-    const diffHours = Math.round((now - d) / (1000 * 60 * 60));
-    if (diffHours < 24) {
-      return `Scraped today (${diffHours}h ago)`;
-    }
-    const diffDays = Math.round(diffHours / 24);
-    if (diffDays === 1) return `Scraped yesterday (${d.toLocaleDateString()})`;
-    return `Scraped ${diffDays} days ago (${d.toLocaleDateString()})`;
-  } catch {
-    return dateStr;
-  }
-}
-
-function renderReviewQueue() {
-  const container = document.getElementById('review-queue-cards');
-  if (state.reviewQueue.length === 0) {
-    container.innerHTML = `<div class="text-dim py-6" style="text-align:center;">No pending review applications found for this filter.</div>`;
-    return;
-  }
-
-  container.innerHTML = state.reviewQueue.map(app => {
-    const scrapedBadge = formatScrapedDate(app.date_scraped || app.applied_date);
-    const fieldsList = Object.entries(app.fields_filled_json || {}).map(([k, v]) => `
-      <div class="field-row">
-        <span class="field-key">${escape(k)}</span>
-        <span class="field-val" title="${escape(String(v))}">${escape(String(v))}</span>
-      </div>
-    `).join('');
-
-    const targetedPills = (app.skills_targeted || []).slice(0, 4).map(s => `<span class="badge-tag">${escape(s)}</span>`).join('');
-    const gapPills = (app.skills_gap || []).map(s => `<span class="badge-gap">${escape(s)}</span>`).join('') || '<span class="text-dim">None (Strong Match)</span>';
-
-    return `
-      <div class="review-item" id="card-${app.id}">
-        <div class="review-header">
-          <div class="review-title-box">
-            <h4>${escape(app.job_title)}</h4>
-            <div class="review-meta">
-              <strong>${escape(app.company)}</strong>
-              <span>&bull;</span>
-              <span>${escape(app.location || 'Remote')}</span>
-              <span>&bull;</span>
-              <span class="date-badge">📅 ${scrapedBadge}</span>
-              <span>&bull;</span>
-              <span class="badge-tag">${escape(app.platform_type.toUpperCase())}</span>
-            </div>
-          </div>
-          <span class="badge-score">🎯 ${app.match_score_at_apply}% Match</span>
-        </div>
-
-        <div class="review-grid-details">
-          <div>
-            <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;">
-              <strong>Targeted Skills:</strong> ${targetedPills}
-              <div style="margin-top:4px;"><strong>Honest Skills Gap:</strong> ${gapPills}</div>
-            </div>
-            <div class="jd-box">
-              <strong>Job Description Summary:</strong><br>
-              ${escape(app.job_description || 'Full JD available in portal.').substring(0, 420)}...
-            </div>
-          </div>
-
-          <div class="fields-table-box">
-            <h5>📋 Pre-Filled Form Values</h5>
-            <div class="fields-list">
-              ${fieldsList || '<div class="text-dim">Standard profile mappings active.</div>'}
-            </div>
-          </div>
-        </div>
-
-        <div class="review-footer">
-          <div class="review-footer-left">
-            <span style="font-size:12px;color:var(--text-dim);">Recruiter / Hiring Contact:</span>
-            <strong style="font-size:12px;color:#cbd5e1;">${escape(app.contact_person || 'Hiring Team')} ${app.contact_email ? `(${escape(app.contact_email)})` : ''}</strong>
-          </div>
-          <div class="review-footer-right">
-            <button class="btn btn-launch btn-sm" onclick="launchFill('${app.id}', '${app.posting_url}')">
-              🚀 Launch Portal & Pre-Fill Form
-            </button>
-            <button class="btn btn-secondary btn-sm" onclick="viewResume('${app.job_id}', '${escape(app.company)}', ${app.match_score_at_apply})">
-              📄 View Tailored Resume
-            </button>
-            <button class="btn btn-primary btn-sm" onclick="confirmSubmit('${app.id}')">
-              ✅ Confirm Submitted
-            </button>
-            <button class="btn btn-secondary btn-sm" onclick="skipApplication('${app.id}')" style="color:var(--accent-rose);">
-              Skip
-            </button>
-          </div>
-        </div>
-      </div>
-    `;
-  }).join('');
-}
-
-function renderTracker() {
-  const tbody = document.getElementById('tracker-tbody');
-  const filtered = state.applications.filter(app => {
-    const matchesFilter = state.filterStatus === 'all' || app.status === state.filterStatus;
-    const q = state.search;
-    const matchesSearch = !q ||
-      (app.job_title && app.job_title.toLowerCase().includes(q)) ||
-      (app.company && app.company.toLowerCase().includes(q)) ||
-      (app.contact_person && app.contact_person.toLowerCase().includes(q)) ||
-      (app.skills_targeted && app.skills_targeted.some(s => s.toLowerCase().includes(q)));
-    return matchesFilter && matchesSearch;
-  });
-
-  if (filtered.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="11" class="text-center py-6 text-dim">No applications matching filter.</td></tr>`;
-    return;
-  }
-
-  tbody.innerHTML = filtered.map(app => {
-    const targetedPills = (app.skills_targeted || []).slice(0, 3).map(s => `<span class="badge-tag">${escape(s)}</span>`).join('');
-    const gapPills = (app.skills_gap || []).slice(0, 2).map(s => `<span class="badge-gap">${escape(s)}</span>`).join('') || '<span class="text-dim">—</span>';
-    const contactDisplay = app.contact_person ? `${escape(app.contact_person)} ${app.contact_email ? `<br><small style="color:var(--text-dim)">${escape(app.contact_email)}</small>` : ''}` : 'Hiring Team';
-    const scrapedDateDisplay = formatScrapedDate(app.date_scraped || app.applied_date);
-
-    return `
-      <tr>
-        <td>
-          <strong>${escape(app.job_title)}</strong>
-          <div style="font-size:11.5px;color:var(--text-muted);">${escape(app.company)} • ${escape(app.location || 'Remote')}</div>
-        </td>
-        <td><span class="badge-tag">${escape(app.platform_type.toUpperCase())}</span></td>
-        <td><div style="font-size:11.5px;color:var(--accent-cyan);">${scrapedDateDisplay}</div></td>
-        <td><span class="badge-score">🎯 ${app.match_score_at_apply}%</span></td>
-        <td><div style="font-size:12px;">${contactDisplay}</div></td>
-        <td>${targetedPills}</td>
-        <td>${gapPills}</td>
-        <td>
-          <button class="btn btn-secondary btn-sm" onclick="viewResume('${app.job_id}', '${escape(app.company)}', ${app.match_score_at_apply})">
-            📄 Preview
-          </button>
-        </td>
-        <td><span class="badge-status ${app.status}">${app.status}</span></td>
-        <td>
-          <select class="select-response" onchange="updateResponse('${app.id}', this.value)">
-            <option value="No response" ${app.response_status === 'No response' ? 'selected' : ''}>No response</option>
-            <option value="Interview" ${app.response_status === 'Interview' ? 'selected' : ''}>Interview</option>
-            <option value="Offer" ${app.response_status === 'Offer' ? 'selected' : ''}>Offer</option>
-            <option value="Rejected" ${app.response_status === 'Rejected' ? 'selected' : ''}>Rejected</option>
-          </select>
-        </td>
-        <td>
-          <a href="${app.posting_url || '#'}" target="_blank" class="btn btn-secondary btn-sm" title="View Posting">↗</a>
-        </td>
-      </tr>
-    `;
-  }).join('');
-}
-
-function renderProfileEditor() {
-  const container = document.getElementById('profile-fields-container');
-  const p = state.profile;
-  const custom = p.custom_field_answers || {};
-
-  container.innerHTML = `
-    <div class="field-box">
-      <label>Full Name</label>
-      <input type="text" id="prof-full-name" class="input" value="${escape(p.full_name || '')}">
-    </div>
-    <div class="field-box">
-      <label>Email Address</label>
-      <input type="email" id="prof-email" class="input" value="${escape(p.email || '')}">
-    </div>
-    <div class="field-box">
-      <label>Phone Number</label>
-      <input type="text" id="prof-phone" class="input" value="${escape(p.phone || '')}">
-    </div>
-    <div class="field-box">
-      <label>Location / Address</label>
-      <input type="text" id="prof-address" class="input" value="${escape(p.address || '')}">
-    </div>
-    <div class="field-box">
-      <label>LinkedIn URL</label>
-      <input type="url" id="prof-linkedin" class="input" value="${escape(p.linkedin_url || '')}">
-    </div>
-    <div class="field-box">
-      <label>Portfolio / GitHub URL</label>
-      <input type="url" id="prof-portfolio" class="input" value="${escape(p.portfolio_url || '')}">
-    </div>
-    <div class="field-box">
-      <label>Work Authorization</label>
-      <input type="text" id="prof-work-auth" class="input" value="${escape(p.work_authorization || '')}">
-    </div>
-    <div class="field-box">
-      <label>Salary Expectation</label>
-      <input type="text" id="prof-salary" class="input" value="${escape(p.salary_expectation || '')}">
-    </div>
-    <div class="field-box" style="grid-column: 1/-1;">
-      <label>Why do you want to work here? (Template answer)</label>
-      <textarea id="prof-why-join" class="textarea" rows="3">${escape(custom.why_join || '')}</textarea>
-    </div>
-    <div class="field-box" style="grid-column: 1/-1;">
-      <label>Highlight your greatest professional achievement (Template answer)</label>
-      <textarea id="prof-achievement" class="textarea" rows="3">${escape(custom.greatest_achievement || '')}</textarea>
-    </div>
-  `;
-}
-
-async function saveProfile() {
-  const updated = {
-    id: "default_profile",
-    full_name: document.getElementById('prof-full-name').value.trim(),
-    email: document.getElementById('prof-email').value.trim(),
-    phone: document.getElementById('prof-phone').value.trim(),
-    address: document.getElementById('prof-address').value.trim(),
-    linkedin_url: document.getElementById('prof-linkedin').value.trim(),
-    portfolio_url: document.getElementById('prof-portfolio').value.trim(),
-    work_authorization: document.getElementById('prof-work-auth').value.trim(),
-    salary_expectation: document.getElementById('prof-salary').value.trim(),
-    years_experience: 15,
-    custom_field_answers: {
-      why_join: document.getElementById('prof-why-join').value.trim(),
-      greatest_achievement: document.getElementById('prof-achievement').value.trim()
-    }
-  };
-
-  try {
-    const res = await fetch(`${API_BASE}/api/profile`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(updated)
-    });
-    if (res.ok) {
-      alert('✅ Candidate profile updated successfully!');
-      loadProfile();
-    }
-  } catch (err) {
-    alert('Failed to save profile: ' + err.message);
-  }
-}
-
-function renderTaxonomy() {
-  const tbody = document.getElementById('taxonomy-tbody');
-  if (state.taxonomy.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="6" class="text-center py-6 text-dim">No fields registered yet.</td></tr>`;
-    return;
-  }
-  tbody.innerHTML = state.taxonomy.map(t => `
-    <tr>
-      <td><span class="badge-tag">${escape(t.platform_type.toUpperCase())}</span></td>
-      <td><strong>${escape(t.field_name)}</strong></td>
-      <td><code>${escape(t.field_type)}</code></td>
-      <td>${escape(t.maps_to_profile_field || '—')}</td>
-      <td>${t.is_required ? '<span style="color:var(--accent-rose)">Yes</span>' : 'No'}</td>
-      <td><small style="color:var(--text-dim)">${escape(t.last_seen_at)}</small></td>
-    </tr>
-  `).join('');
-}
-
-function renderLogs() {
-  const term = document.getElementById('audit-terminal');
-  term.innerHTML = state.logs.slice().reverse().map(l => `
-    <div class="term-line">
-      <span class="term-time">[${new Date(l.timestamp).toLocaleTimeString()}]</span>
-      <span class="term-${l.level}">[${l.level}]</span>
-      <strong>${escape(l.action)}</strong>: 
-      <span>${escape(l.details)}</span>
-    </div>
-  `).join('');
-}
-
-// Actions
-window.launchFill = async function(appId, url) {
-  try {
-    const res = await fetch(`${API_BASE}/api/applications/${appId}/launch-fill`, { method: 'POST' });
-    if (res.ok) {
-      loadLogs();
-    }
-  } catch (err) {
-    window.open(url, '_blank');
-  }
-};
-
-window.confirmSubmit = async function(appId) {
-  try {
-    await fetch(`${API_BASE}/api/applications/${appId}/status`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: 'SUBMITTED', notes: 'Confirmed and submitted by candidate' })
-    });
-    loadAll();
-  } catch (err) {
-    alert('Failed to confirm submit: ' + err.message);
-  }
-};
-
-window.skipApplication = async function(appId) {
-  try {
-    await fetch(`${API_BASE}/api/applications/${appId}/status`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: 'FAILED', notes: 'Skipped by user in review queue' })
-    });
-    loadAll();
-  } catch (err) {
-    alert('Failed to skip: ' + err.message);
-  }
-};
-
-window.updateResponse = async function(appId, responseStatus) {
-  try {
-    await fetch(`${API_BASE}/api/applications/${appId}/response-status`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ response_status: responseStatus })
-    });
-    loadStatsAndApps();
-  } catch (err) {
-    alert('Failed to update response status: ' + err.message);
-  }
-};
-
-window.switchResumeTab = function(tab) {
-  const singleView = document.getElementById('view-single-resume');
-  const compareView = document.getElementById('view-compare-resume');
-  const tabTailored = document.getElementById('tab-tailored');
-  const tabCompare = document.getElementById('tab-compare');
-
-  if (tab === 'compare') {
-    singleView.style.display = 'none';
-    compareView.style.display = 'block';
-    tabTailored.classList.remove('active');
-    tabCompare.classList.add('active');
-  } else {
-    singleView.style.display = 'block';
-    compareView.style.display = 'none';
-    tabTailored.classList.add('active');
-    tabCompare.classList.remove('active');
-  }
-};
-
-window.viewResume = async function(jobId, company, score) {
-  const modal = document.getElementById('modal-resume');
-  document.getElementById('modal-resume-title').textContent = `Resume Tailoring for ${company}`;
-  document.getElementById('modal-resume-score').textContent = `🎯 ${score}% ATS Match`;
-  document.getElementById('resume-frame').src = `${API_BASE}/api/resume/preview/${jobId}`;
-  
-  // Default to single view tab
-  switchResumeTab('tailored');
-  modal.style.display = 'flex';
-
-  // Load comparison data asynchronously
-  try {
-    const res = await fetch(`${API_BASE}/api/resume/compare/${jobId}`);
-    if (res.ok) {
-      const data = await res.json();
-      document.getElementById('compare-original-text').value = data.original_text || 'Original master profile text';
-      document.getElementById('compare-tailored-frame').src = `${API_BASE}/api/resume/preview/${jobId}`;
-      document.getElementById('compare-score-badge').textContent = `🎯 ${data.match_score}% Score`;
-      
-      const targetedStr = (data.skills_matched || []).join(', ') || 'General AI Leadership';
-      const gapStr = (data.skills_gap || []).join(', ') || 'None (Strong Match)';
-      document.getElementById('compare-skills-summary').innerHTML = `
-        <strong>Targeted:</strong> <span style="color:var(--primary);">${escape(targetedStr)}</span> &nbsp;|&nbsp;
-        <strong>Honest Gaps:</strong> <span style="color:#ef4444;">${escape(gapStr)}</span>
-      `;
-    }
-  } catch (err) {
-    console.error('Error fetching resume comparison:', err);
-  }
-};
-
-async function runBatchPipeline() {
-  const btn = document.getElementById('btn-run-batch');
-  btn.disabled = true;
-  btn.textContent = 'Ingesting & Tailoring...';
-
-  try {
-    const res = await fetch(`${API_BASE}/api/run-batch`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ max_jobs: 25, auto_submit: false })
-    });
-    if (res.ok) {
-      setTimeout(() => {
-        loadAll();
-        btn.disabled = false;
-        btn.innerHTML = `
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
-          Ingest & Run Pipeline
-        `;
-      }, 3500);
-    }
-  } catch (err) {
-    alert('Batch run failed: ' + err.message);
-    btn.disabled = false;
-  }
-}
-
-async function submitCustomJob(e) {
-  e.preventDefault();
-  const title = document.getElementById('cust-title').value.trim();
-  const company = document.getElementById('cust-company').value.trim();
-  const url = document.getElementById('cust-url').value.trim();
-  const location = document.getElementById('cust-location').value.trim();
-  const description = document.getElementById('cust-desc').value.trim();
-  const auto_submit = document.getElementById('cust-auto').checked;
-
-  if (!title || !company) {
-    alert('Please provide Job Title and Company.');
-    return;
-  }
-
-  const btn = document.getElementById('btn-submit-custom');
-  btn.disabled = true;
-  btn.textContent = 'Processing & Tailoring...';
-
-  try {
-    const res = await fetch(`${API_BASE}/api/apply-custom`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, company, url, location, description, auto_submit })
-    });
-    if (res.ok) {
-      document.getElementById('modal-custom').style.display = 'none';
-      document.getElementById('custom-form').reset();
-      loadAll();
-    }
-  } catch (err) {
-    alert('Error submitting custom job: ' + err.message);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'Process & Tailor';
-  }
-}
-
-function escape(s) {
-  if (!s) return '';
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
-```
-
----
-
 ## File: `dashboard/index.html`
-
 ```html
 <!DOCTYPE html>
 <html lang="en">
@@ -3629,52 +2998,49 @@ function escape(s) {
       <section class="card-section" id="view-review">
         <div class="card-head">
           <div>
-            <h3>Review Queue (Mode A: Pre-Filled Applications)</h3>
-            <p>Inspect job details, verified match score, scraped timestamps, pre-filled ATS fields, and launch portal</p>
+            <h3>Interactive Pre-Submit Review Queue</h3>
+            <p>Review scraped jobs, pre-filled form values, tailored resumes, and AI cover letters before submission</p>
           </div>
-          <div class="filter-group">
-            <button class="btn btn-secondary btn-sm filter-pill active" data-period="all" id="filter-review-all">All Jobs</button>
-            <button class="btn btn-secondary btn-sm filter-pill" data-period="past_week" id="filter-review-week">📅 Past Week (Last 7 Days)</button>
+          <div class="filter-pills">
+            <button class="pill active" data-filter="all">All Pending</button>
+            <button class="pill" data-filter="past_week">📅 Past Week (Last 7 Days)</button>
+            <button class="pill" data-filter="greenhouse">Greenhouse</button>
+            <button class="pill" data-filter="lever">Lever</button>
+            <button class="pill" data-filter="workday">Workday</button>
+            <button class="pill" data-filter="linkedin">LinkedIn</button>
           </div>
         </div>
-        <div id="review-queue-cards" class="review-stack">
+
+        <div class="review-stack" id="review-queue-cards">
           <!-- Populated by JS -->
         </div>
       </section>
 
-      <!-- View 2: Applications Ledger -->
+      <!-- View 2: Application Ledger -->
       <section class="card-section" id="view-tracker" style="display: none;">
         <div class="card-head">
           <div>
-            <h3>Applications Ledger</h3>
-            <p>Comprehensive record of all applications, tailored resumes, recruiter contacts, and interview stages</p>
+            <h3>Applications Ledger & Status</h3>
+            <p>Complete history of processed applications, match scores, and hiring outcomes</p>
           </div>
-          <div class="filter-group">
-            <input type="text" id="tracker-search" class="input-search" placeholder="Search title, company, skill...">
-            <select id="tracker-status-filter" class="select-filter">
-              <option value="all">All Statuses</option>
-              <option value="PENDING_REVIEW">Pending Review</option>
-              <option value="SUBMITTED">Submitted</option>
-              <option value="FAILED">Failed</option>
-            </select>
+          <div class="filter-pills">
+            <button class="pill active" data-status="all">All</button>
+            <button class="pill" data-status="PENDING_REVIEW">Pending Review</button>
+            <button class="pill" data-status="SUBMITTED">Submitted</button>
+            <button class="pill" data-status="FAILED">Failed/Skipped</button>
           </div>
         </div>
-
         <div class="table-wrap">
           <table class="table">
             <thead>
               <tr>
-                <th>Job & Company</th>
+                <th>Company & Title</th>
                 <th>Platform</th>
-                <th>Scraped Date</th>
                 <th>Match Score</th>
-                <th>Recruiter Contact</th>
-                <th>Skills Targeted</th>
-                <th>Skills Gap</th>
-                <th>Resume</th>
-                <th>Status</th>
-                <th>Response Outcome</th>
-                <th>Link</th>
+                <th>Applied Date</th>
+                <th>App Status</th>
+                <th>Outcome / Response</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody id="tracker-tbody">
@@ -3684,21 +3050,62 @@ function escape(s) {
         </div>
       </section>
 
-      <!-- View 3: Profile & Pre-Fill Editor -->
+      <!-- View 3: Target Preferences & Blacklist (ScaleJobs & JobRight Configuration) -->
+      <section class="card-section" id="view-preferences" style="display: none;">
+        <div class="card-head">
+          <div>
+            <h3>Target Job Preferences & Blacklist Criteria</h3>
+            <p>Predefined search criteria, compensation targets, remote policies, and company exclusions</p>
+          </div>
+          <button class="btn btn-primary" id="btn-save-preferences">Save Preferences</button>
+        </div>
+        <div class="profile-grid" id="preferences-container">
+          <div class="field-card" style="grid-column: span 2;">
+            <label>Target Job Titles (Comma-separated)</label>
+            <input type="text" id="pref-target-titles" class="input" placeholder="Principal AI PM, Director of Product, Lead Fintech PM">
+          </div>
+          <div class="field-card">
+            <label>Minimum Target Salary ($)</label>
+            <input type="number" id="pref-min-salary" class="input" placeholder="180000">
+          </div>
+          <div class="field-card">
+            <label>Daily Application Pacing Limit</label>
+            <input type="number" id="pref-max-daily" class="input" placeholder="15">
+          </div>
+          <div class="field-card">
+            <label>Auto-Tailor Match Threshold (%)</label>
+            <input type="number" id="pref-threshold" class="input" placeholder="70">
+          </div>
+          <div class="field-card">
+            <label>Work Authorization / Visa</label>
+            <input type="text" id="pref-visa" class="input" placeholder="US Citizen">
+          </div>
+          <div class="field-card" style="grid-column: span 2;">
+            <label>Preferred Locations (Comma-separated)</label>
+            <input type="text" id="pref-locations" class="input" placeholder="Remote, San Francisco, CA, Bay Area, CA">
+          </div>
+          <div class="field-card" style="grid-column: span 2;">
+            <label>Blacklisted Companies (Auto-Skipped)</label>
+            <textarea id="pref-blacklist" class="input" style="height: 70px;" placeholder="Revature, CyberCoders, Dice Spam Corp"></textarea>
+          </div>
+        </div>
+      </section>
+
+      <!-- View 4: Profile & Pre-Fill Editor -->
       <section class="card-section" id="view-profile" style="display: none;">
         <div class="card-head">
           <div>
-            <h3>Candidate Profile & Pre-Fill Data Editor</h3>
+            <h3>Candidate Master Profile</h3>
             <p>Master values reused by the Form Mapper across Greenhouse, Lever, Workday, and LinkedIn</p>
           </div>
-          <button class="btn btn-primary" id="btn-save-profile">Save Changes</button>
+          <button class="btn btn-primary" id="btn-save-profile">Save Profile</button>
         </div>
         <div class="profile-grid" id="profile-fields-container">
           <!-- Populated by JS -->
         </div>
       </section>
 
-      <!-- View 4: Field Taxonomy -->
+      <!-- View 5: Field Taxonomy -->
       <section class="card-section" id="view-taxonomy" style="display: none;">
         <div class="card-head">
           <div>
@@ -3725,7 +3132,7 @@ function escape(s) {
         </div>
       </section>
 
-      <!-- View 5: Live Audit Stream -->
+      <!-- View 6: Live Audit Stream -->
       <section class="card-section" id="view-logs" style="display: none;">
         <div class="card-head">
           <div>
@@ -3740,34 +3147,65 @@ function escape(s) {
     </main>
   </div>
 
-  <!-- Resume Preview & Comparison Modal -->
+  <!-- Document Preview Modal (3 Tabs: Tailored Resume | Cover Letter | JobRight Match Diagnostics) -->
   <div class="modal" id="modal-resume">
-    <div class="modal-box modal-lg" style="max-width: 1000px; width: 92vw;">
+    <div class="modal-box modal-lg" style="max-width: 1040px; width: 94vw;">
       <div class="modal-head">
         <div>
-          <h3 id="modal-resume-title">Tailored Resume & Original Comparison</h3>
-          <div style="display:flex;gap:8px;align-items:center;margin-top:4px;">
+          <h3 id="modal-resume-title">Job Application Documents</h3>
+          <div style="display:flex;gap:8px;align-items:center;margin-top:6px;">
             <span class="badge-pill" id="modal-resume-score">Score: 92%</span>
             <div class="filter-pills" style="margin:0;">
-              <button class="pill active" id="tab-tailored" onclick="switchResumeTab('tailored')">📄 Tailored HTML</button>
-              <button class="pill" id="tab-compare" onclick="switchResumeTab('compare')">⚖️ Original vs Tailored Diff</button>
+              <button class="pill active" id="tab-tailored" onclick="switchResumeTab('tailored')">📄 Tailored Resume</button>
+              <button class="pill" id="tab-coverletter" onclick="switchResumeTab('coverletter')">✉️ AI Cover Letter</button>
+              <button class="pill" id="tab-compare" onclick="switchResumeTab('compare')">⚖️ Match Diagnostics & Diff</button>
             </div>
           </div>
         </div>
         <button class="modal-x" id="btn-close-resume">&times;</button>
       </div>
       <div class="modal-content" style="padding: 12px 20px;">
-        <!-- Single Frame View -->
+        <!-- Tab 1: Tailored Resume -->
         <div id="view-single-resume" style="height: 580px;">
           <iframe id="resume-frame" class="frame" style="width:100%;height:100%;border:none;border-radius:6px;"></iframe>
         </div>
-        <!-- Side by Side Compare View -->
-        <div id="view-compare-resume" style="display:none; height: 580px;">
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;height:100%;">
+        <!-- Tab 2: AI Cover Letter -->
+        <div id="view-cover-letter" style="display:none; height: 580px; overflow-y: auto;">
+          <div style="display:flex;justify-content:flex-end;margin-bottom:8px;">
+            <button class="btn btn-secondary" onclick="copyCoverLetterText()">📋 Copy Text to Clipboard</button>
+          </div>
+          <iframe id="cover-letter-frame" class="frame" style="width:100%;height:520px;border:1px solid var(--border-color);border-radius:6px;"></iframe>
+        </div>
+        <!-- Tab 3: Match Diagnostics & Diff -->
+        <div id="view-compare-resume" style="display:none; height: 580px; overflow-y:auto;">
+          <!-- JobRight Match Breakdown Cards -->
+          <div id="jobright-breakdown-card" style="background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:8px;padding:14px;margin-bottom:14px;">
+            <div style="font-weight:700;font-size:14px;margin-bottom:8px;color:var(--text-main);display:flex;align-items:center;justify-content:space-between;">
+              <span>🎯 JobRight-Style Match Breakdown</span>
+              <span id="breakdown-rating-badge" class="badge-pill">Strong Fit</span>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px;">
+              <div>
+                <div style="font-size:12px;font-weight:600;color:var(--primary);margin-bottom:4px;">✨ Why You Match:</div>
+                <ul id="breakdown-why-list" style="margin:0;padding-left:18px;font-size:12px;color:var(--text-main);line-height:1.4;"></ul>
+              </div>
+              <div>
+                <div style="font-size:12px;font-weight:600;color:#ef4444;margin-bottom:4px;">⚡ Skills Gap & Advice:</div>
+                <div id="breakdown-gap-advice" style="font-size:12px;color:var(--text-muted);background:rgba(239,68,68,0.06);padding:8px 12px;border-radius:6px;border-left:3px solid #ef4444;"></div>
+              </div>
+            </div>
+            <div style="display:flex;gap:16px;font-size:12px;color:var(--text-muted);border-top:1px solid var(--border-color);padding-top:8px;">
+              <div id="breakdown-salary-fit">💰 Salary Fit: --</div>
+              <div id="breakdown-remote-fit">🌐 Remote Fit: --</div>
+            </div>
+          </div>
+
+          <!-- Side by Side Diff -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;height:380px;">
             <div style="display:flex;flex-direction:column;height:100%;">
               <div style="font-weight:600;font-size:13px;color:var(--text-muted);margin-bottom:6px;display:flex;justify-content:space-between;">
-                <span>ORIGINAL MASTER RESUME</span>
-                <span class="badge-tag">Base Profile</span>
+                <span>ORIGINAL MASTER PROFILE</span>
+                <span class="badge-tag">Base</span>
               </div>
               <textarea id="compare-original-text" readonly style="flex:1;background:var(--bg-secondary);color:var(--text-main);font-family:monospace;font-size:11px;padding:12px;border:1px solid var(--border-color);border-radius:6px;resize:none;line-height:1.5;"></textarea>
             </div>
@@ -3842,10 +3280,7 @@ function escape(s) {
 
 ```
 
----
-
 ## File: `dashboard/styles.css`
-
 ```css
 :root {
   --bg-main: #0a0e17;
@@ -4404,50 +3839,693 @@ body {
 
 ```
 
----
+## File: `dashboard/app.js`
+```javascript
+/**
+ * ApexApply Dashboard Controller
+ * ==============================
+ * Comprehensive JobRight.ai & ScaleJobs inspired state management:
+ * - Interactive Review Queue with real date badges & past-week filter
+ * - JobRight-Style Multi-Dimensional Match Diagnostics
+ * - Bespoke AI Tailored Cover Letter generation & copy
+ * - Predefined Target Preferences & Company Blacklist Editor
+ * - Full Applications Ledger & Status Tracking
+ */
 
-## File: `tests/fixtures/sample_jobs.json`
+const API_BASE = window.location.origin;
 
-```json
-[
-  {
-    "id": "mock_job_01",
-    "title": "Lead AI Product Manager",
-    "company": "Anthropic",
-    "url": "https://boards.greenhouse.io/anthropic/jobs/4001",
-    "description": "We are seeking a Lead AI Product Manager to build agentic workflows with LangChain and Python. Location: San Francisco, CA. Salary: $190,000 - $240,000. Contact: Sarah Connor (sarah@anthropic.com).",
-    "location": "San Francisco, CA (Remote)",
-    "salary": "$190,000 - $240,000",
-    "date_posted": "2026-08-25"
-  },
-  {
-    "id": "mock_job_02",
-    "title": "Principal Fintech Platform PM",
-    "company": "Stripe",
-    "url": "https://jobs.lever.co/stripe/5002",
-    "description": "Scale payments and fraud decisioning pipelines using modern microservices and Appian workflows. Remote, US.",
-    "location": "Remote, US",
-    "salary": "$180,000 - $220,000",
-    "date_posted": "2026-08-26"
-  },
-  {
-    "id": "mock_job_03",
-    "title": "Staff Enterprise Architect",
-    "company": "Workday Labs",
-    "url": "https://myworkdayjobs.com/workday/6003",
-    "description": "Lead enterprise risk modernization and cloud transformations.",
-    "location": "Pleasanton, CA",
-    "salary": "Not listed",
-    "date_posted": "2026-08-24"
+let currentCoverLetterText = '';
+
+const state = {
+  stats: null,
+  reviewQueue: [],
+  applications: [],
+  taxonomy: [],
+  logs: [],
+  profile: null,
+  preferences: null,
+  filterPlatform: 'all',
+  filterStatus: 'all',
+  search: '',
+  reviewPeriod: 'all'
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+  setupNavigation();
+  setupEventListeners();
+  loadAll();
+});
+
+function setupNavigation() {
+  const navLinks = document.querySelectorAll('.nav-link');
+  const sections = document.querySelectorAll('.card-section');
+
+  navLinks.forEach(link => {
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      navLinks.forEach(l => l.classList.remove('active'));
+      link.classList.add('active');
+
+      const targetId = 'view-' + link.id.replace('nav-', '');
+      sections.forEach(sec => {
+        sec.style.display = (sec.id === targetId) ? 'block' : 'none';
+      });
+
+      if (link.id === 'nav-profile') loadProfile();
+      if (link.id === 'nav-preferences') loadPreferences();
+      if (link.id === 'nav-taxonomy') loadTaxonomy();
+      if (link.id === 'nav-review') loadReviewQueue();
+      if (link.id === 'nav-tracker') loadStatsAndApps();
+    });
+  });
+}
+
+function setupEventListeners() {
+  const searchInput = document.getElementById('filter-search');
+  if (searchInput) {
+    searchInput.addEventListener('input', (e) => {
+      state.search = e.target.value.toLowerCase();
+      renderReviewQueue();
+      renderTracker();
+    });
   }
-]
+
+  const filterPills = document.querySelectorAll('#view-review .pill');
+  filterPills.forEach(pill => {
+    pill.addEventListener('click', (e) => {
+      filterPills.forEach(p => p.classList.remove('active'));
+      e.target.classList.add('active');
+      const filter = e.target.getAttribute('data-filter');
+      if (filter === 'past_week') {
+        state.reviewPeriod = 'past_week';
+        state.filterPlatform = 'all';
+      } else {
+        state.reviewPeriod = 'all';
+        state.filterPlatform = filter || 'all';
+      }
+      loadReviewQueue();
+    });
+  });
+
+  const btnRunBatch = document.getElementById('btn-run-batch');
+  if (btnRunBatch) btnRunBatch.addEventListener('click', runBatchPipeline);
+
+  const btnSaveProfile = document.getElementById('btn-save-profile');
+  if (btnSaveProfile) btnSaveProfile.addEventListener('click', saveProfile);
+
+  const btnSavePref = document.getElementById('btn-save-preferences');
+  if (btnSavePref) btnSavePref.addEventListener('click', savePreferences);
+
+  // Resume Modal Close
+  const modalResume = document.getElementById('modal-resume');
+  const btnClose1 = document.getElementById('btn-close-resume');
+  const btnClose2 = document.getElementById('btn-close-resume-2');
+  if (btnClose1) btnClose1.addEventListener('click', () => modalResume.style.display = 'none');
+  if (btnClose2) btnClose2.addEventListener('click', () => modalResume.style.display = 'none');
+}
+
+async function loadAll() {
+  await Promise.all([
+    loadStatsAndApps(),
+    loadReviewQueue(),
+    loadLogs(),
+    loadPreferences()
+  ]);
+}
+
+async function loadStatsAndApps() {
+  try {
+    const [statsRes, appsRes] = await Promise.all([
+      fetch(`${API_BASE}/api/stats`),
+      fetch(`${API_BASE}/api/applications`)
+    ]);
+
+    if (statsRes.ok) {
+      state.stats = await statsRes.json();
+      renderStats(state.stats);
+    }
+
+    if (appsRes.ok) {
+      const data = await appsRes.json();
+      state.applications = data.applications || [];
+      renderTracker();
+    }
+  } catch (err) {
+    console.error('Error loading stats:', err);
+  }
+}
+
+function renderStats(stats) {
+  if (!stats) return;
+  const setEl = (id, val) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = val;
+  };
+  setEl('stat-total-apps', stats.total_applications || 0);
+  setEl('stat-pending-review', stats.pending_review || 0);
+  setEl('stat-submitted', stats.submitted || 0);
+  setEl('stat-avg-match', (stats.average_match_score || 0) + '%');
+}
+
+function formatScrapedDate(dateStr) {
+  if (!dateStr) return 'Recently';
+  try {
+    const d = new Date(dateStr.replace(' ', 'T'));
+    const now = new Date();
+    const diffHours = Math.round((now - d) / (1000 * 60 * 60));
+    if (diffHours < 24 && diffHours >= 0) return `Scraped today (${diffHours}h ago)`;
+    const diffDays = Math.round(diffHours / 24);
+    if (diffDays === 1) return `Scraped yesterday (${d.toLocaleDateString()})`;
+    if (diffDays > 1) return `Scraped ${diffDays} days ago (${d.toLocaleDateString()})`;
+    return d.toLocaleDateString();
+  } catch {
+    return dateStr;
+  }
+}
+
+async function loadReviewQueue() {
+  try {
+    let url = `${API_BASE}/api/review-queue`;
+    if (state.reviewPeriod === 'past_week') {
+      url += '?period=past_week';
+    }
+    const res = await fetch(url);
+    if (res.ok) {
+      const data = await res.json();
+      state.reviewQueue = data.review_queue || [];
+      renderReviewQueue();
+    }
+  } catch (err) {
+    console.error('Error loading review queue:', err);
+  }
+}
+
+function renderReviewQueue() {
+  const container = document.getElementById('review-queue-cards');
+  if (!container) return;
+
+  let filtered = state.reviewQueue;
+  if (state.filterPlatform && state.filterPlatform !== 'all') {
+    filtered = filtered.filter(a => (a.platform_type || '').toLowerCase() === state.filterPlatform.toLowerCase());
+  }
+
+  if (state.search) {
+    filtered = filtered.filter(a => 
+      (a.job_title || '').toLowerCase().includes(state.search) ||
+      (a.company || '').toLowerCase().includes(state.search) ||
+      (a.platform_type || '').toLowerCase().includes(state.search)
+    );
+  }
+
+  if (filtered.length === 0) {
+    container.innerHTML = `<div style="text-align:center;padding:40px;color:var(--text-muted);">No pending review applications found for this filter.</div>`;
+    return;
+  }
+
+  container.innerHTML = filtered.map(app => {
+    const scrapedBadge = formatScrapedDate(app.date_scraped || app.applied_date);
+    const fieldsList = Object.entries(app.fields_filled_json || {}).slice(0, 6).map(([k, v]) => `
+      <div class="field-row" style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:11.5px;">
+        <span style="color:var(--text-muted);font-weight:500;">${escapeHtml(k)}:</span>
+        <span style="color:var(--text-main);font-family:monospace;">${escapeHtml(String(v))}</span>
+      </div>
+    `).join('');
+
+    const targetedPills = (app.skills_targeted || []).slice(0, 4).map(s => `<span class="badge-tag" style="background:rgba(2,132,199,0.12);color:#38bdf8;padding:2px 6px;border-radius:4px;font-size:11px;margin-right:4px;">${escapeHtml(s)}</span>`).join('');
+    const gapPills = (app.skills_gap || []).map(s => `<span style="background:rgba(239,68,68,0.1);color:#ef4444;padding:2px 6px;border-radius:4px;font-size:11px;margin-right:4px;">${escapeHtml(s)}</span>`).join('') || '<span style="color:var(--text-muted);font-size:11px;">None (Strong Alignment)</span>';
+
+    return `
+      <div class="review-item" id="card-${app.id}" style="background:var(--bg-card);border:1px solid var(--border-color);border-radius:10px;padding:18px;margin-bottom:16px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">
+          <div>
+            <h4 style="margin:0 0 4px 0;font-size:16px;color:var(--text-main);">${escapeHtml(app.job_title)}</h4>
+            <div style="font-size:12px;color:var(--text-muted);display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <strong style="color:var(--primary);">${escapeHtml(app.company)}</strong>
+              <span>&bull;</span>
+              <span>${escapeHtml(app.location || 'Remote')}</span>
+              <span>&bull;</span>
+              <span style="background:var(--bg-secondary);padding:2px 8px;border-radius:4px;font-size:11px;">📅 ${scrapedBadge}</span>
+              <span>&bull;</span>
+              <span style="text-transform:uppercase;font-weight:700;font-size:10px;padding:2px 6px;background:rgba(255,255,255,0.06);border-radius:4px;">${escapeHtml(app.platform_type)}</span>
+            </div>
+          </div>
+          <span class="badge-score" style="background:rgba(16,185,129,0.12);color:#10b981;font-weight:700;padding:4px 10px;border-radius:6px;font-size:13px;">
+            🎯 ${app.match_score_at_apply}% Match
+          </span>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:16px;margin-bottom:14px;">
+          <div style="background:var(--bg-secondary);padding:12px;border-radius:6px;font-size:12px;">
+            <div style="margin-bottom:6px;"><strong>Targeted Core Competencies:</strong> ${targetedPills}</div>
+            <div style="margin-bottom:8px;"><strong>Honest Skills Gap:</strong> ${gapPills}</div>
+            <div style="color:var(--text-muted);font-size:11.5px;line-height:1.4;">
+              <strong>Job Summary:</strong> ${(escapeHtml(app.job_description || '')).substring(0, 260)}...
+            </div>
+          </div>
+
+          <div style="background:var(--bg-secondary);padding:12px;border-radius:6px;">
+            <div style="font-size:11.5px;font-weight:600;color:var(--text-muted);margin-bottom:6px;">PRE-FILLED ATS VALUES</div>
+            ${fieldsList}
+          </div>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border-color);padding-top:12px;">
+          <div style="font-size:12px;color:var(--text-muted);">
+            Recruiter: <strong style="color:var(--text-main);">${escapeHtml(app.contact_person || 'Hiring Team')}</strong>
+            ${app.contact_email ? ` &bull; <a href="mailto:${escapeHtml(app.contact_email)}" style="color:var(--primary);text-decoration:none;">${escapeHtml(app.contact_email)}</a>` : ''}
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-secondary btn-sm" onclick="viewResume('${app.job_id}', '${escapeHtml(app.company)}', ${app.match_score_at_apply})">
+              📄 View Documents (Resume & Cover Letter)
+            </button>
+            <button class="btn btn-primary btn-sm" onclick="launchFillApplication('${app.id}')">
+              🚀 Launch & Pre-Fill
+            </button>
+            <button class="btn btn-secondary btn-sm" style="color:#10b981;" onclick="confirmSubmission('${app.id}')">
+              ✅ Confirm Submitted
+            </button>
+            <button class="btn btn-secondary btn-sm" style="color:#ef4444;" onclick="skipApplication('${app.id}')">
+              Skip
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderTracker() {
+  const tbody = document.getElementById('tracker-tbody');
+  if (!tbody) return;
+
+  let filtered = state.applications;
+  if (state.filterStatus && state.filterStatus !== 'all') {
+    filtered = filtered.filter(a => a.status === state.filterStatus);
+  }
+
+  if (state.search) {
+    filtered = filtered.filter(a =>
+      (a.job_title || '').toLowerCase().includes(state.search) ||
+      (a.company || '').toLowerCase().includes(state.search)
+    );
+  }
+
+  tbody.innerHTML = filtered.map(app => `
+    <tr>
+      <td>
+        <strong>${escapeHtml(app.job_title || '')}</strong><br>
+        <span style="font-size:12px;color:var(--text-muted);">${escapeHtml(app.company || '')}</span>
+      </td>
+      <td><span class="badge-tag">${escapeHtml((app.platform_type || '').toUpperCase())}</span></td>
+      <td><strong>${app.match_score_at_apply || 0}%</strong></td>
+      <td style="font-size:12px;color:var(--text-muted);">${formatScrapedDate(app.applied_date)}</td>
+      <td>
+        <span style="padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;${app.status === 'SUBMITTED' ? 'background:rgba(16,185,129,0.15);color:#10b981;' : 'background:rgba(245,158,11,0.15);color:#f59e0b;'}">
+          ${escapeHtml(app.status)}
+        </span>
+      </td>
+      <td>
+        <select class="input input-sm" style="font-size:12px;" onchange="updateResponse('${app.id}', this.value)">
+          <option value="No response" ${app.response_status === 'No response' ? 'selected' : ''}>No response</option>
+          <option value="Interview" ${app.response_status === 'Interview' ? 'selected' : ''}>🎉 Interview</option>
+          <option value="Offer" ${app.response_status === 'Offer' ? 'selected' : ''}>🏆 Offer</option>
+          <option value="Rejected" ${app.response_status === 'Rejected' ? 'selected' : ''}>Rejected</option>
+        </select>
+      </td>
+      <td>
+        <button class="btn btn-secondary btn-sm" onclick="viewResume('${app.job_id}', '${escapeHtml(app.company || '')}', ${app.match_score_at_apply || 70})">
+          📄 Docs
+        </button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+window.switchResumeTab = function(tab) {
+  const singleView = document.getElementById('view-single-resume');
+  const coverView = document.getElementById('view-cover-letter');
+  const compareView = document.getElementById('view-compare-resume');
+
+  const tabTailored = document.getElementById('tab-tailored');
+  const tabCover = document.getElementById('tab-coverletter');
+  const tabCompare = document.getElementById('tab-compare');
+
+  [tabTailored, tabCover, tabCompare].forEach(t => t.classList.remove('active'));
+  [singleView, coverView, compareView].forEach(v => v.style.display = 'none');
+
+  if (tab === 'coverletter') {
+    coverView.style.display = 'block';
+    tabCover.classList.add('active');
+  } else if (tab === 'compare') {
+    compareView.style.display = 'block';
+    tabCompare.classList.add('active');
+  } else {
+    singleView.style.display = 'block';
+    tabTailored.classList.add('active');
+  }
+};
+
+window.viewResume = async function(jobId, company, score) {
+  const modal = document.getElementById('modal-resume');
+  document.getElementById('modal-resume-title').textContent = `Application Documents for ${company}`;
+  document.getElementById('modal-resume-score').textContent = `🎯 ${score}% ATS Match`;
+  document.getElementById('resume-frame').src = `${API_BASE}/api/resume/preview/${jobId}`;
+  
+  switchResumeTab('tailored');
+  modal.style.display = 'flex';
+
+  // Load Cover Letter
+  try {
+    const clRes = await fetch(`${API_BASE}/api/cover-letter/${jobId}`);
+    if (clRes.ok) {
+      const clData = await clRes.json();
+      currentCoverLetterText = clData.cover_letter_text || '';
+      const clFrame = document.getElementById('cover-letter-frame');
+      clFrame.srcdoc = clData.cover_letter_html || `<pre style="padding:20px;">${currentCoverLetterText}</pre>`;
+    }
+  } catch (err) {
+    console.error('Cover letter load notice:', err);
+  }
+
+  // Load JobRight Match Breakdown & Comparison
+  try {
+    const [compRes, breakRes] = await Promise.all([
+      fetch(`${API_BASE}/api/resume/compare/${jobId}`),
+      fetch(`${API_BASE}/api/match-breakdown/${jobId}`)
+    ]);
+
+    if (compRes.ok) {
+      const data = await compRes.json();
+      document.getElementById('compare-original-text').value = data.original_text || 'Original master profile text';
+      document.getElementById('compare-tailored-frame').src = `${API_BASE}/api/resume/preview/${jobId}`;
+      document.getElementById('compare-score-badge').textContent = `🎯 ${data.match_score}% Score`;
+      
+      const targetedStr = (data.skills_matched || []).join(', ') || 'General AI Leadership';
+      const gapStr = (data.skills_gap || []).join(', ') || 'None (Strong Alignment)';
+      document.getElementById('compare-skills-summary').innerHTML = `
+        <strong>Targeted:</strong> <span style="color:var(--primary);">${escapeHtml(targetedStr)}</span> &nbsp;|&nbsp;
+        <strong>Honest Gaps:</strong> <span style="color:#ef4444;">${escapeHtml(gapStr)}</span>
+      `;
+    }
+
+    if (breakRes.ok) {
+      const bd = await breakRes.json();
+      const badge = document.getElementById('breakdown-rating-badge');
+      badge.textContent = bd.badge_label || 'Strong Fit';
+      badge.style.background = `${bd.badge_color || '#10b981'}22`;
+      badge.style.color = bd.badge_color || '#10b981';
+
+      const whyList = document.getElementById('breakdown-why-list');
+      whyList.innerHTML = (bd.why_you_match || []).map(w => `<li>${escapeHtml(w)}</li>`).join('');
+
+      document.getElementById('breakdown-gap-advice').textContent = bd.gap_mitigation_advice || 'No critical gaps identified.';
+      document.getElementById('breakdown-salary-fit').textContent = `💰 ${bd.salary_fit || 'Target: $180k+'}`;
+      document.getElementById('breakdown-remote-fit').textContent = `🌐 ${bd.remote_fit || 'Remote Match'}`;
+    }
+  } catch (err) {
+    console.error('Breakdown load notice:', err);
+  }
+};
+
+window.copyCoverLetterText = function() {
+  if (!currentCoverLetterText) return;
+  navigator.clipboard.writeText(currentCoverLetterText).then(() => {
+    alert('Cover letter text copied to clipboard!');
+  }).catch(err => {
+    alert('Failed to copy: ' + err.message);
+  });
+};
+
+window.launchFillApplication = async function(appId) {
+  try {
+    const res = await fetch(`${API_BASE}/api/applications/${appId}/launch-fill`, { method: 'POST' });
+    if (res.ok) {
+      const data = await res.json();
+      alert(`Portal Launched & Fields Pre-Filled!\n\nTarget URL: ${data.posting_url}\nPlatform: ${data.platform_type.toUpperCase()}`);
+    }
+  } catch (err) {
+    alert('Launch error: ' + err.message);
+  }
+};
+
+window.confirmSubmission = async function(appId) {
+  try {
+    await fetch(`${API_BASE}/api/applications/${appId}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'SUBMITTED', notes: 'Manually verified and confirmed by user' })
+    });
+    loadAll();
+  } catch (err) {
+    alert('Failed to confirm: ' + err.message);
+  }
+};
+
+window.skipApplication = async function(appId) {
+  try {
+    await fetch(`${API_BASE}/api/applications/${appId}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'FAILED', notes: 'Skipped by user in review queue' })
+    });
+    loadAll();
+  } catch (err) {
+    alert('Failed to skip: ' + err.message);
+  }
+};
+
+window.updateResponse = async function(appId, responseStatus) {
+  try {
+    await fetch(`${API_BASE}/api/applications/${appId}/response-status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ response_status: responseStatus })
+    });
+    loadStatsAndApps();
+  } catch (err) {
+    alert('Failed to update response: ' + err.message);
+  }
+};
+
+async function loadPreferences() {
+  try {
+    const res = await fetch(`${API_BASE}/api/preferences`);
+    if (res.ok) {
+      state.preferences = await res.json();
+      const p = state.preferences;
+      const setVal = (id, val) => {
+        const el = document.getElementById(id);
+        if (el) el.value = val;
+      };
+      setVal('pref-target-titles', (p.target_titles || []).join(', '));
+      setVal('pref-min-salary', p.min_salary || 180000);
+      setVal('pref-max-daily', p.max_daily_applications || 15);
+      setVal('pref-threshold', p.auto_tailor_threshold || 70);
+      setVal('pref-visa', p.visa_status || 'US Citizen');
+      setVal('pref-locations', (p.location_preferences || []).join(', '));
+      setVal('pref-blacklist', (p.blacklisted_companies || []).join(', '));
+    }
+  } catch (err) {
+    console.error('Error loading preferences:', err);
+  }
+}
+
+async function savePreferences() {
+  const getVal = id => (document.getElementById(id) || {}).value || '';
+  const prefData = {
+    target_titles: getVal('pref-target-titles').split(',').map(s => s.trim()).filter(Boolean),
+    min_salary: parseInt(getVal('pref-min-salary')) || 180000,
+    max_daily_applications: parseInt(getVal('pref-max-daily')) || 15,
+    auto_tailor_threshold: parseInt(getVal('pref-threshold')) || 70,
+    visa_status: getVal('pref-visa'),
+    location_preferences: getVal('pref-locations').split(',').map(s => s.trim()).filter(Boolean),
+    blacklisted_companies: getVal('pref-blacklist').split(',').map(s => s.trim()).filter(Boolean),
+    remote_only: true,
+    pacing_mode: 'balanced'
+  };
+
+  try {
+    const res = await fetch(`${API_BASE}/api/preferences`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(prefData)
+    });
+    if (res.ok) {
+      alert('Preferences and blacklist criteria saved successfully!');
+    }
+  } catch (err) {
+    alert('Failed to save preferences: ' + err.message);
+  }
+}
+
+async function loadProfile() {
+  try {
+    const res = await fetch(`${API_BASE}/api/profile`);
+    if (res.ok) {
+      state.profile = await res.json();
+      renderProfileEditor(state.profile);
+    }
+  } catch (err) {
+    console.error('Error loading profile:', err);
+  }
+}
+
+function renderProfileEditor(p) {
+  const container = document.getElementById('profile-fields-container');
+  if (!container || !p) return;
+
+  container.innerHTML = `
+    <div class="field-card">
+      <label>Full Name</label>
+      <input type="text" id="prof-full-name" class="input" value="${escapeHtml(p.full_name || '')}">
+    </div>
+    <div class="field-card">
+      <label>Email Address</label>
+      <input type="email" id="prof-email" class="input" value="${escapeHtml(p.email || '')}">
+    </div>
+    <div class="field-card">
+      <label>Phone Number</label>
+      <input type="text" id="prof-phone" class="input" value="${escapeHtml(p.phone || '')}">
+    </div>
+    <div class="field-card">
+      <label>Location / Address</label>
+      <input type="text" id="prof-address" class="input" value="${escapeHtml(p.address || '')}">
+    </div>
+    <div class="field-card">
+      <label>LinkedIn URL</label>
+      <input type="url" id="prof-linkedin" class="input" value="${escapeHtml(p.linkedin_url || '')}">
+    </div>
+    <div class="field-card">
+      <label>Portfolio / Personal Website</label>
+      <input type="url" id="prof-portfolio" class="input" value="${escapeHtml(p.portfolio_url || '')}">
+    </div>
+    <div class="field-card">
+      <label>Work Authorization</label>
+      <input type="text" id="prof-auth" class="input" value="${escapeHtml(p.work_authorization || 'US Citizen')}">
+    </div>
+    <div class="field-card">
+      <label>Years of Experience</label>
+      <input type="number" id="prof-years" class="input" value="${p.years_experience || 15}">
+    </div>
+  `;
+}
+
+async function saveProfile() {
+  const getVal = id => (document.getElementById(id) || {}).value || '';
+  const profileData = {
+    full_name: getVal('prof-full-name'),
+    email: getVal('prof-email'),
+    phone: getVal('prof-phone'),
+    address: getVal('prof-address'),
+    linkedin_url: getVal('prof-linkedin'),
+    portfolio_url: getVal('prof-portfolio'),
+    work_authorization: getVal('prof-auth'),
+    years_experience: parseInt(getVal('prof-years')) || 15
+  };
+
+  try {
+    const res = await fetch(`${API_BASE}/api/profile`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(profileData)
+    });
+    if (res.ok) {
+      alert('Candidate master profile saved successfully!');
+    }
+  } catch (err) {
+    alert('Failed to save profile: ' + err.message);
+  }
+}
+
+async function loadTaxonomy() {
+  try {
+    const res = await fetch(`${API_BASE}/api/taxonomy`);
+    if (res.ok) {
+      state.taxonomy = await res.json();
+      const tbody = document.getElementById('taxonomy-tbody');
+      if (tbody) {
+        tbody.innerHTML = state.taxonomy.map(t => `
+          <tr>
+            <td><span class="badge-tag">${escapeHtml(t.platform_type.toUpperCase())}</span></td>
+            <td><strong>${escapeHtml(t.field_name)}</strong></td>
+            <td>${escapeHtml(t.field_type)}</td>
+            <td><code>${escapeHtml(t.maps_to_profile_field || 'N/A')}</code></td>
+            <td>${t.is_required ? '<span style="color:#ef4444;">Yes</span>' : '<span style="color:var(--text-muted);">No</span>'}</td>
+            <td style="font-size:12px;color:var(--text-muted);">${formatScrapedDate(t.last_seen_at)}</td>
+          </tr>
+        `).join('');
+      }
+    }
+  } catch (err) {
+    console.error('Error loading taxonomy:', err);
+  }
+}
+
+async function loadLogs() {
+  try {
+    const res = await fetch(`${API_BASE}/api/logs`);
+    if (res.ok) {
+      state.logs = await res.json();
+      const term = document.getElementById('audit-terminal');
+      if (term) {
+        term.innerHTML = state.logs.map(l => `
+          <div style="font-family:monospace;font-size:12px;margin-bottom:4px;">
+            <span style="color:#64748b;">[${l.timestamp}]</span>
+            <span style="color:${l.level === 'SUCCESS' ? '#10b981' : (l.level === 'WARNING' ? '#f59e0b' : '#38bdf8')};font-weight:700;">[${l.action}]</span>
+            <span style="color:var(--text-main);">${escapeHtml(l.details || '')}</span>
+          </div>
+        `).join('');
+      }
+    }
+  } catch (err) {
+    console.error('Error loading logs:', err);
+  }
+}
+
+async function runBatchPipeline() {
+  const btn = document.getElementById('btn-run-batch');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Ingesting, Tailoring & Generating Cover Letters...';
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/api/run-batch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ max_jobs: 25, auto_submit: false })
+    });
+    if (res.ok) {
+      setTimeout(() => {
+        loadAll();
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = `
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+            Ingest & Run Pipeline
+          `;
+        }
+      }, 3000);
+    }
+  } catch (err) {
+    alert('Batch run failed: ' + err.message);
+    if (btn) btn.disabled = false;
+  }
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
 
 ```
 
----
-
 ## File: `tests/test_db.py`
-
 ```python
 import unittest
 import json
@@ -4549,10 +4627,7 @@ if __name__ == "__main__":
 
 ```
 
----
-
 ## File: `tests/test_llm.py`
-
 ```python
 import unittest
 from src.llm import LLMInterface
@@ -4590,10 +4665,7 @@ if __name__ == "__main__":
 
 ```
 
----
-
 ## File: `tests/test_ingestion.py`
-
 ```python
 import unittest
 import tempfile
@@ -4645,10 +4717,7 @@ if __name__ == "__main__":
 
 ```
 
----
-
 ## File: `tests/test_extraction.py`
-
 ```python
 import unittest
 import tempfile
@@ -4758,10 +4827,7 @@ if __name__ == "__main__":
 
 ```
 
----
-
 ## File: `tests/test_tailoring.py`
-
 ```python
 import unittest
 import tempfile
@@ -4824,29 +4890,62 @@ class TestTailoringAndScoring(unittest.TestCase):
         self.assertIsNotNone(res)
         self.assertGreaterEqual(res["match_score"], 70)
         self.assertTrue(Path(res["file_path"]).exists())
-        self.assertIn("Anthropic", res["tailored_summary"])
+        self.assertIn("LangChain", res["skills_matched"])
 
-        # Check DB status
+        # Check DB record
         conn = get_connection(self.db_path)
         cursor = conn.cursor()
-        cursor.execute("SELECT status FROM jobs WHERE id = ?", (anthropic_id,))
-        self.assertEqual(cursor.fetchone()["status"], "TAILORED")
-
         cursor.execute("SELECT * FROM tailored_resumes WHERE job_id = ?", (anthropic_id,))
         row = cursor.fetchone()
         self.assertIsNotNone(row)
         self.assertEqual(row["match_score"], res["match_score"])
+
+        # Verify Cover Letter was generated (JobRight & ScaleJobs feature)
+        cursor.execute("SELECT * FROM cover_letters WHERE job_id = ?", (anthropic_id,))
+        cl_row = cursor.fetchone()
+        self.assertIsNotNone(cl_row)
+        self.assertIn("Anthropic", cl_row["cover_letter_text"])
+        self.assertIn("Sarah Connor", cl_row["recipient_name"])
         conn.close()
+
+    def test_jobright_match_breakdown_diagnostics(self):
+        """Verifies JobRight-style structured match breakdown with why you match and gap mitigation."""
+        scorer = MatchScorer()
+        candidate_skills = ["Generative AI", "LangChain", "Python", "Product Leadership", "Fintech"]
+        job = {
+            "company": "Vanguard",
+            "title": "AI/ML Product Manager",
+            "salary_range": "$190,000 - $240,000",
+            "remote_flag": 1,
+            "location": "Remote"
+        }
+        job_reqs = {
+            "required_skills": ["Generative AI", "LangChain", "Kubernetes"],
+            "nice_to_have_skills": ["Python"],
+            "min_years_experience": 8
+        }
+
+        breakdown = scorer.generate_match_breakdown(
+            candidate_skills=candidate_skills,
+            candidate_years=15,
+            candidate_target_salary=180000,
+            job=job,
+            job_requirements=job_reqs
+        )
+
+        self.assertIn("overall_score", breakdown)
+        self.assertIn("why_you_match", breakdown)
+        self.assertGreaterEqual(len(breakdown["why_you_match"]), 2)
+        self.assertIn("Kubernetes", breakdown["skills_gap"])
+        self.assertIn("Remote Match", breakdown["remote_fit"])
+        self.assertIn("190,000", breakdown["salary_fit"])
 
 if __name__ == "__main__":
     unittest.main()
 
 ```
 
----
-
 ## File: `tests/test_executor.py`
-
 ```python
 import unittest
 import tempfile
@@ -4979,10 +5078,7 @@ if __name__ == "__main__":
 
 ```
 
----
-
 ## File: `tests/test_orchestrator.py`
-
 ```python
 import unittest
 import tempfile
@@ -5037,10 +5133,37 @@ class TestOrchestrator(unittest.TestCase):
             self.assertGreaterEqual(a["match_score_at_apply"], 70)
         conn.close()
 
+    def test_preferences_blacklist_enforcement(self):
+        """Verifies that jobs from blacklisted companies are automatically skipped."""
+        from src.db import upsert_preferences
+        upsert_preferences({
+            "target_titles": ["AI PM"],
+            "min_salary": 180000,
+            "blacklisted_companies": ["BlacklistedCo", "SpamRecruiter"],
+            "auto_tailor_threshold": 70
+        }, db_path=self.db_path)
+
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+        INSERT INTO jobs (id, title, company, description_raw, status)
+        VALUES ('job_bl_1', 'AI PM', 'BlacklistedCo Labs', 'LangChain Python AI', 'NEW')
+        """)
+        conn.commit()
+        conn.close()
+
+        res = self.orchestrator.run_pipeline_for_job('job_bl_1')
+        self.assertEqual(res["status"], "SKIPPED")
+        self.assertEqual(res["reason"], "Blacklisted company")
+
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT status FROM jobs WHERE id = 'job_bl_1'")
+        self.assertEqual(cursor.fetchone()["status"], "SKIPPED")
+        conn.close()
+
 if __name__ == "__main__":
     unittest.main()
 
+
 ```
-
----
-

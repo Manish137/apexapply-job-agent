@@ -160,6 +160,60 @@ def init_db(db_path: Optional[Path] = None):
     );
     """)
 
+    # 9. cover_letters (JobRight & ScaleJobs style tailored cover letters)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS cover_letters (
+        id TEXT PRIMARY KEY,
+        job_id TEXT NOT NULL,
+        application_id TEXT,
+        recipient_name TEXT,
+        recipient_email TEXT,
+        cover_letter_text TEXT NOT NULL,
+        cover_letter_html TEXT NOT NULL,
+        generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(job_id) REFERENCES jobs(id) ON DELETE CASCADE
+    );
+    """)
+
+    # 10. user_preferences (ScaleJobs & JobRight predefined configuration)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS user_preferences (
+        id TEXT PRIMARY KEY,
+        target_titles_json TEXT, -- JSON array of target titles
+        min_salary INTEGER DEFAULT 180000,
+        location_preferences_json TEXT, -- JSON array of preferred locations
+        remote_only INTEGER DEFAULT 1,
+        visa_status TEXT DEFAULT 'US Citizen',
+        blacklisted_companies_json TEXT, -- JSON array of company names to skip
+        max_daily_applications INTEGER DEFAULT 15,
+        pacing_mode TEXT DEFAULT 'balanced', -- balanced, aggressive, conservative
+        auto_tailor_threshold INTEGER DEFAULT 70,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+
+    # Seed default user preferences if not present
+    cursor.execute("SELECT COUNT(*) as c FROM user_preferences")
+    if cursor.fetchone()["c"] == 0:
+        cursor.execute("""
+        INSERT INTO user_preferences (
+            id, target_titles_json, min_salary, location_preferences_json,
+            remote_only, visa_status, blacklisted_companies_json,
+            max_daily_applications, pacing_mode, auto_tailor_threshold
+        ) VALUES (
+            'default_preferences',
+            '["Principal AI Product Manager", "Lead AI/ML PM", "Director of Product", "Senior Product Leader", "Fintech PM"]',
+            180000,
+            '["Remote", "San Francisco, CA", "Bay Area, CA"]',
+            1,
+            'US Citizen',
+            '["Revature", "CyberCoders", "Dice Spam Corp"]',
+            15,
+            'balanced',
+            70
+        )
+        """)
+
     conn.commit()
     conn.close()
 
@@ -212,3 +266,95 @@ def get_profile(profile_id: str = "default_profile", db_path: Optional[Path] = N
     except:
         d["custom_field_answers"] = {}
     return d
+
+def get_preferences(pref_id: str = "default_preferences", db_path: Optional[Path] = None) -> Dict[str, Any]:
+    conn = get_connection(db_path)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM user_preferences WHERE id = ?", (pref_id,))
+    row = cursor.fetchone()
+    conn.close()
+    if not row:
+        return {
+            "id": pref_id,
+            "target_titles": ["Principal AI Product Manager", "Lead AI/ML PM", "Director of Product", "Fintech PM"],
+            "min_salary": 180000,
+            "location_preferences": ["Remote", "San Francisco, CA"],
+            "remote_only": True,
+            "visa_status": "US Citizen",
+            "blacklisted_companies": ["Revature", "CyberCoders"],
+            "max_daily_applications": 15,
+            "pacing_mode": "balanced",
+            "auto_tailor_threshold": 70
+        }
+    d = dict(row)
+    return {
+        "id": d["id"],
+        "target_titles": json.loads(d.get("target_titles_json") or "[]"),
+        "min_salary": d.get("min_salary", 180000),
+        "location_preferences": json.loads(d.get("location_preferences_json") or "[]"),
+        "remote_only": bool(d.get("remote_only", 1)),
+        "visa_status": d.get("visa_status", "US Citizen"),
+        "blacklisted_companies": json.loads(d.get("blacklisted_companies_json") or "[]"),
+        "max_daily_applications": d.get("max_daily_applications", 15),
+        "pacing_mode": d.get("pacing_mode", "balanced"),
+        "auto_tailor_threshold": d.get("auto_tailor_threshold", 70)
+    }
+
+def upsert_preferences(pref_data: Dict[str, Any], db_path: Optional[Path] = None):
+    conn = get_connection(db_path)
+    cursor = conn.cursor()
+    cursor.execute("""
+    INSERT OR REPLACE INTO user_preferences (
+        id, target_titles_json, min_salary, location_preferences_json,
+        remote_only, visa_status, blacklisted_companies_json,
+        max_daily_applications, pacing_mode, auto_tailor_threshold, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        pref_data.get("id", "default_preferences"),
+        json.dumps(pref_data.get("target_titles", [])),
+        int(pref_data.get("min_salary", 180000)),
+        json.dumps(pref_data.get("location_preferences", [])),
+        1 if pref_data.get("remote_only", True) else 0,
+        pref_data.get("visa_status", "US Citizen"),
+        json.dumps(pref_data.get("blacklisted_companies", [])),
+        int(pref_data.get("max_daily_applications", 15)),
+        pref_data.get("pacing_mode", "balanced"),
+        int(pref_data.get("auto_tailor_threshold", 70)),
+        datetime.utcnow().isoformat()
+    ))
+    conn.commit()
+    conn.close()
+
+def save_cover_letter(
+    job_id: str,
+    cover_letter_text: str,
+    cover_letter_html: str,
+    recipient_name: Optional[str] = None,
+    recipient_email: Optional[str] = None,
+    application_id: Optional[str] = None,
+    db_path: Optional[Path] = None
+) -> str:
+    conn = get_connection(db_path)
+    cursor = conn.cursor()
+    cl_id = f"cl_{job_id}"
+    cursor.execute("""
+    INSERT OR REPLACE INTO cover_letters (
+        id, job_id, application_id, recipient_name, recipient_email,
+        cover_letter_text, cover_letter_html, generated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        cl_id, job_id, application_id, recipient_name, recipient_email,
+        cover_letter_text, cover_letter_html, datetime.utcnow().isoformat()
+    ))
+    conn.commit()
+    conn.close()
+    return cl_id
+
+def get_cover_letter(job_id: str, db_path: Optional[Path] = None) -> Optional[Dict[str, Any]]:
+    conn = get_connection(db_path)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM cover_letters WHERE job_id = ? ORDER BY generated_at DESC LIMIT 1", (job_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+

@@ -51,5 +51,35 @@ class TestOrchestrator(unittest.TestCase):
             self.assertGreaterEqual(a["match_score_at_apply"], 70)
         conn.close()
 
+    def test_preferences_blacklist_enforcement(self):
+        """Verifies that jobs from blacklisted companies are automatically skipped."""
+        from src.db import upsert_preferences
+        upsert_preferences({
+            "target_titles": ["AI PM"],
+            "min_salary": 180000,
+            "blacklisted_companies": ["BlacklistedCo", "SpamRecruiter"],
+            "auto_tailor_threshold": 70
+        }, db_path=self.db_path)
+
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+        INSERT INTO jobs (id, title, company, description_raw, status)
+        VALUES ('job_bl_1', 'AI PM', 'BlacklistedCo Labs', 'LangChain Python AI', 'NEW')
+        """)
+        conn.commit()
+        conn.close()
+
+        res = self.orchestrator.run_pipeline_for_job('job_bl_1')
+        self.assertEqual(res["status"], "SKIPPED")
+        self.assertEqual(res["reason"], "Blacklisted company")
+
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT status FROM jobs WHERE id = 'job_bl_1'")
+        self.assertEqual(cursor.fetchone()["status"], "SKIPPED")
+        conn.close()
+
 if __name__ == "__main__":
     unittest.main()
+

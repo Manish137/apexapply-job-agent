@@ -339,8 +339,18 @@ EDUCATION & CERTIFICATIONS
         conn.commit()
         conn.close()
 
+        # Also generate bespoke tailored Cover Letter (JobRight & ScaleJobs style)
+        cover_letter_res = self.generate_cover_letter(
+            job_id=job_id,
+            base_resume=base_resume,
+            job=job,
+            reqs=req,
+            matched_skills=matched_skills,
+            match_score=match_score
+        )
+
         log_audit("RESUME_TAILORED", "SUCCESS", job_id,
-                  f"Tailored resume generated for {company} (Match Score: {match_score}%, Gaps: {len(skills_gap)})",
+                  f"Tailored resume and cover letter generated for {company} (Match Score: {match_score}%, Gaps: {len(skills_gap)})",
                   self.db_path)
 
         return {
@@ -350,5 +360,147 @@ EDUCATION & CERTIFICATIONS
             "match_score": match_score,
             "skills_matched": matched_skills,
             "skills_gap": skills_gap,
-            "tailored_summary": tailored_summary
+            "tailored_summary": tailored_summary,
+            "cover_letter": cover_letter_res
         }
+
+    def generate_cover_letter(
+        self,
+        job_id: str,
+        base_resume: Dict[str, Any],
+        job: Dict[str, Any],
+        reqs: Dict[str, Any],
+        matched_skills: List[str],
+        match_score: int
+    ) -> Dict[str, Any]:
+        """Generates a bespoke, STAR-aligned executive cover letter for the role."""
+        company = job.get("company", "Target Company")
+        title = job.get("title", "Product Leader")
+        recipient = job.get("contact_person") or reqs.get("contact_person") or "Hiring Team"
+        recipient_email = job.get("contact_email") or reqs.get("contact_email")
+
+        cl_dir = self.data_dir / "cover_letters"
+        cl_dir.mkdir(parents=True, exist_ok=True)
+
+        salutation = f"Dear {recipient}," if recipient != "Hiring Team" else f"Dear {company} Hiring Team,"
+        top_skills_str = ", ".join(matched_skills[:3]) if matched_skills else "AI/ML Product Leadership and Platform Modernization"
+
+        text_content = f"""Manish Shukla
+Tracy, CA | (209) 319-8716 | shukla.manish80@gmail.com | linkedin.com/in/mshukla1 | manishshukla.dev
+
+{datetime.utcnow().strftime('%B %d, %Y')}
+
+{salutation}
+
+I am writing to express my strong enthusiasm for the {title} position at {company}. With over 15 years of experience leading enterprise AI/ML platforms, high-throughput financial architectures, and intelligent workflow automations, I have spent my career translating complex technical innovations into scalable, multi-million dollar business outcomes. {company}'s strategic focus on excellence and innovation directly aligns with my passion for building high-impact products.
+
+Throughout my career, I have consistently driven measurable ROI across mission-critical platforms:
+• Enterprise AI/ML Innovation: Scaled enterprise GenAI/LLM pipelines utilizing LangChain and vector search, slashing document intake times by 74% and generating $900K in recurring annual operational savings.
+• Multi-Million Dollar Modernizations: Spearheaded a $10M+ digital risk transformation at Charles Schwab, replacing legacy monoliths with unified Appian architectures supporting 5M+ daily transactions at 99.99% availability.
+• Fintech Dispute Automation: Directed end-to-end automation across Zelle and EWS fraud detection workflows, reducing manual reviews by 90% and saving $500K+ annually.
+
+I am particularly excited about how my background in {top_skills_str} can immediately accelerate {company}'s product roadmap. I pride myself on bridging cross-functional engineering teams with executive business priorities to ship robust, reliable software.
+
+Thank you for your time and consideration. I welcome the opportunity to discuss how my experience and track record will deliver immediate value to {company}.
+
+Sincerely,
+
+Manish Shukla
+(209) 319-8716
+shukla.manish80@gmail.com
+"""
+
+        html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Cover Letter — Manish Shukla ({company})</title>
+  <style>
+    @page {{ margin: 0.75in; size: letter; }}
+    body {{
+      font-family: 'Helvetica Neue', Arial, sans-serif;
+      color: #1a1a1a;
+      background: #ffffff;
+      margin: 0;
+      padding: 32px 40px;
+      line-height: 1.55;
+      font-size: 13.5px;
+    }}
+    .header {{ text-align: center; border-bottom: 2px solid #0f172a; padding-bottom: 12px; margin-bottom: 20px; }}
+    .header h1 {{ margin: 0 0 4px 0; font-size: 22px; color: #0f172a; letter-spacing: -0.5px; }}
+    .header-sub {{ font-size: 12.5px; font-weight: 600; color: #0284c7; margin-bottom: 4px; }}
+    .contact {{ font-size: 11.5px; color: #475569; }}
+    .date-row {{ margin-bottom: 16px; color: #64748b; font-size: 12px; }}
+    .salutation {{ font-weight: 700; color: #0f172a; margin-bottom: 14px; font-size: 14px; }}
+    p {{ margin-bottom: 12px; text-align: justify; }}
+    ul {{ margin: 6px 0 14px 20px; padding: 0; }}
+    li {{ margin-bottom: 6px; font-size: 13px; color: #334155; text-align: justify; }}
+    .highlight-card {{
+      background: #f0f9ff;
+      border-left: 3px solid #0284c7;
+      padding: 10px 14px;
+      margin: 14px 0;
+      font-size: 12.5px;
+      color: #0369a1;
+    }}
+    .closing {{ margin-top: 24px; font-weight: 600; color: #0f172a; }}
+    .signature {{ margin-top: 16px; font-size: 14px; font-weight: 700; color: #0f172a; }}
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>MANISH SHUKLA</h1>
+    <div class="header-sub">Senior Product Leader • AI/ML & Fintech Platforms</div>
+    <div class="contact">
+      Tracy, CA &bull; (209) 319-8716 &bull; shukla.manish80@gmail.com &bull; linkedin.com/in/mshukla1 &bull; manishshukla.dev
+    </div>
+  </div>
+
+  <div class="date-row">{datetime.utcnow().strftime('%B %d, %Y')}</div>
+  <div class="salutation">{salutation}</div>
+
+  <p>I am writing to express my strong enthusiasm for the <strong>{title}</strong> position at <strong>{company}</strong>. With over 15 years of experience leading enterprise AI/ML platforms, high-throughput financial architectures, and intelligent workflow automations, I have spent my career translating complex technical innovations into scalable, multi-million dollar business outcomes. {company}'s strategic focus on excellence and innovation directly aligns with my passion for building high-impact products.</p>
+
+  <div class="highlight-card">
+    <strong>ATS Match Rating: {match_score}%</strong> &bull; Targeted Core Capabilities: {top_skills_str}
+  </div>
+
+  <p>Throughout my career, I have consistently delivered measurable ROI across mission-critical platforms:</p>
+  <ul>
+    <li><strong>Enterprise AI/ML Innovation:</strong> Scaled enterprise GenAI/LLM pipelines utilizing LangChain and vector search, slashing document intake times by 74% and generating $900K in recurring annual operational savings.</li>
+    <li><strong>Multi-Million Dollar Modernizations:</strong> Spearheaded a $10M+ digital risk transformation at Charles Schwab, replacing legacy monoliths with unified Appian architectures supporting 5M+ daily transactions at 99.99% availability.</li>
+    <li><strong>Fintech Dispute Automation:</strong> Directed end-to-end automation across Zelle and EWS fraud detection workflows, reducing manual reviews by 90% and saving $500K+ annually.</li>
+  </ul>
+
+  <p>I am particularly excited about how my background in <strong>{top_skills_str}</strong> can immediately accelerate {company}'s product roadmap. I pride myself on bridging cross-functional engineering teams with executive business priorities to ship robust, reliable software.</p>
+
+  <p>Thank you for your time and consideration. I welcome the opportunity to discuss how my experience and track record will deliver immediate value to {company}.</p>
+
+  <div class="closing">Sincerely,</div>
+  <div class="signature">Manish Shukla</div>
+  <div style="font-size:12px;color:#64748b;margin-top:4px;">(209) 319-8716 &bull; shukla.manish80@gmail.com</div>
+</body>
+</html>
+"""
+        cl_file = cl_dir / f"cover_letter_{job_id}.html"
+        with open(cl_file, "w", encoding="utf-8") as f:
+            f.write(html_content)
+
+        from src.db import save_cover_letter
+        save_cover_letter(
+            job_id=job_id,
+            cover_letter_text=text_content,
+            cover_letter_html=html_content,
+            recipient_name=recipient,
+            recipient_email=recipient_email,
+            db_path=self.db_path
+        )
+
+        return {
+            "job_id": job_id,
+            "recipient_name": recipient,
+            "recipient_email": recipient_email,
+            "cover_letter_text": text_content,
+            "file_path": str(cl_file)
+        }
+
