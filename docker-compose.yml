@@ -2,17 +2,16 @@ version: '3.8'
 
 services:
   apexapply:
-    build: .
-    image: apexapply-agent:latest
+    image: python:3.11-slim
     container_name: apexapply-agent
     restart: always
     ports:
       - "8765:8765"
     environment:
-      - LLM_PROVIDER=mock
       - PORT=8765
-    volumes:
-      - apexapply_data:/app/data
-
-volumes:
-  apexapply_data:
+      - LLM_PROVIDER=mock
+    command: >
+      sh -c "apt-get update && apt-get install -y git curl gcc &&
+             rm -rf /app && git clone https://github.com/Manish137/apexapply-job-agent.git /app &&
+             cd /app && pip install --no-cache-dir -r requirements.txt &&
+             python -m uvicorn dashboard.server:app --host 0.0.0.0 --port 8765"
