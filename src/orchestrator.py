@@ -17,6 +17,12 @@ from src.executor import ApplicationExecutor
 from src.scoring import MatchScorer
 from src.llm import LLMInterface
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).parent.parent / ".env")
+except ImportError:
+    pass
+
 DEFAULT_DATA_DIR = Path(__file__).parent.parent / "data"
 
 class JobAgentOrchestrator:
@@ -25,9 +31,9 @@ class JobAgentOrchestrator:
         db_path: Optional[Path] = None,
         data_dir: Optional[Path] = None,
         llm: Optional[LLMInterface] = None,
-        match_threshold: int = 70,
-        borderline_threshold: int = 50,
-        default_submission_mode: str = "manual_confirm"
+        match_threshold: int = int(os.getenv("MATCH_SCORE_THRESHOLD", "70")),
+        borderline_threshold: int = int(os.getenv("BORDERLINE_THRESHOLD", "50")),
+        default_submission_mode: str = os.getenv("DEFAULT_SUBMISSION_MODE", "manual_confirm")
     ):
         self.db_path = db_path
         self.data_dir = data_dir or DEFAULT_DATA_DIR
@@ -40,7 +46,7 @@ class JobAgentOrchestrator:
         self.ingestion = IngestionService(db_path=self.db_path)
         self.extraction = RequirementExtractionEngine(db_path=self.db_path, llm=self.llm)
         self.tailoring = ResumeTailoringEngine(db_path=self.db_path, data_dir=self.data_dir, llm=self.llm, scorer=self.scorer)
-        self.executor = ApplicationExecutor(db_path=self.db_path, data_dir=self.data_dir)
+        self.executor = ApplicationExecutor(db_path=self.db_path, data_dir=self.data_dir, llm=self.llm)
 
     def get_or_create_profile(self) -> Dict[str, Any]:
         profile = get_profile("default_profile", self.db_path)
@@ -67,7 +73,8 @@ class JobAgentOrchestrator:
             profile = profile_data
         return profile
 
-    def run_pipeline_for_job(self, job_id: str, auto_submit: Optional[bool] = None) -> Dict[str, Any]:
+    def run_pipeline_for_job(self, job_id: str, auto_submit: Optional[bool] = None,
+                             min_score: Optional[int] = None, **apply_options) -> Dict[str, Any]:
         """Runs full pipeline for a single job with preference and blacklist checks."""
         from src.db import get_preferences
         prefs = get_preferences(db_path=self.db_path)
@@ -96,7 +103,7 @@ class JobAgentOrchestrator:
             return {"job_id": job_id, "status": "SKIPPED", "reason": "Blacklisted company"}
 
         if auto_submit is None:
-            auto_submit = (self.default_submission_mode == "auto")
+            auto_submit = self.default_submission_mode in ("auto", "auto_submit")
 
         # 1. Extraction
         reqs = self.extraction.process_job(job_id)
@@ -109,7 +116,7 @@ class JobAgentOrchestrator:
             return {"job_id": job_id, "status": "FAILED", "error": "Tailoring failed"}
 
         score = tailored["match_score"]
-        threshold = prefs.get("auto_tailor_threshold", self.borderline_threshold)
+        threshold = min_score if min_score is not None else prefs.get("auto_tailor_threshold", self.borderline_threshold)
 
         # 3. Decision Threshold
         if score < threshold:
@@ -123,7 +130,7 @@ class JobAgentOrchestrator:
 
         # 4. Execution
         profile = self.get_or_create_profile()
-        app_result = self.executor.execute_application(job_id, profile, auto_submit=auto_submit)
+        app_result = self.executor.execute_application(job_id, profile, auto_submit=auto_submit, **apply_options)
 
         return {
             "job_id": job_id,

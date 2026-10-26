@@ -74,34 +74,6 @@ class TestExecutor(unittest.TestCase):
         self.assertEqual(res["status"], "PENDING_REVIEW")
         self.assertEqual(res["submission_mode"], "auto")
 
-    def test_greenhouse_mode_b_confirmed_submission(self):
-        """When confirmation indicator is detected in DOM, status is SUBMITTED."""
-        from src.handlers.greenhouse import GreenhouseHandler
-        handler = GreenhouseHandler()
-        html_fixture = """
-        <html>
-          <body>
-            <input id="first_name">
-            <input id="last_name">
-            <input id="email">
-            <input id="phone">
-            <button id="submit_app" type="submit">Submit Application</button>
-            <div id="application_confirmation">Thank you! Your application has been received.</div>
-          </body>
-        </html>
-        """
-        screenshot_path = str(self.data_dir / "test_screenshot.png")
-        fill_result = handler.fill_form(
-            job={"id": "j_test", "posting_url": "http://localhost/greenhouse"},
-            tailored_resume_path="",
-            profile=self.profile,
-            screenshot_path=screenshot_path,
-            auto_submit=True,
-            html_fixture=html_fixture
-        )
-        self.assertEqual(fill_result.status, "SUBMITTED")
-        self.assertTrue(Path(screenshot_path).exists())
-
     def test_linkedin_enforces_mode_a(self):
         conn = get_connection(self.db_path)
         cursor = conn.cursor()

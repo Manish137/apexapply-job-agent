@@ -418,7 +418,7 @@ window.launchFillApplication = async function(appId) {
     const res = await fetch(`${API_BASE}/api/applications/${appId}/launch-fill`, { method: 'POST' });
     if (res.ok) {
       const data = await res.json();
-      alert(`Portal Launched & Fields Pre-Filled!\n\nTarget URL: ${data.posting_url}\nPlatform: ${data.platform_type.toUpperCase()}`);
+      alert(data.message || 'Launched');
     }
   } catch (err) {
     alert('Launch error: ' + err.message);

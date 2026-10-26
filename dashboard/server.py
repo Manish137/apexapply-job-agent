@@ -34,6 +34,15 @@ DATA_DIR = DASHBOARD_DIR.parent / "data"
 DB_PATH = DATA_DIR / "job_agent.db"
 
 orchestrator = JobAgentOrchestrator(db_path=DB_PATH, data_dir=DATA_DIR)
+
+
+def job_search_dirs() -> List[Path]:
+    """Job feed folders: data/jobs plus any SCRAPER_OUTPUT_DIR entries (os.pathsep-separated)."""
+    dirs = [DATA_DIR / "jobs"]
+    for d in os.getenv("SCRAPER_OUTPUT_DIR", "").split(os.pathsep):
+        if d.strip():
+            dirs.append(Path(d.strip()).expanduser())
+    return dirs
 taxonomy_service = FieldTaxonomyService(db_path=DB_PATH)
 
 # Request Models
@@ -64,13 +73,7 @@ def startup():
     orchestrator.get_or_create_profile()
     taxonomy_service.seed_standard_taxonomy()
     # Ingest historical jobs on startup if empty
-    search_dirs = [
-        Path("/Users/manishshukla/job-hunter"),
-        Path("/Users/manishshukla/.gemini/antigravity-ide/scratch/agent-command-center/output/jobs"),
-        DATA_DIR / "jobs",
-        DASHBOARD_DIR.parent / "tests" / "fixtures"
-    ]
-    orchestrator.ingestion.scan_scraper_directories(search_dirs)
+    orchestrator.ingestion.scan_scraper_directories(job_search_dirs())
 
 @app.get("/api/stats")
 def get_stats():
@@ -182,15 +185,22 @@ def launch_fill(app_id: str):
 
     job_data = dict(row)
     url = job_data.get("posting_url")
-
-    # Open the browser window to the job URL
-    if url and url.startswith("http"):
-        import subprocess
-        subprocess.Popen(["open", url])
-        log_audit("LAUNCH_PORTAL", "INFO", app_id, f"Opened live ATS portal for {job_data['company']} in browser", DB_PATH)
-        return {"status": "success", "message": f"Opened live portal for {job_data['company']} in browser"}
-    else:
+    if not (url and url.startswith("http")):
         return {"status": "warning", "message": "No valid URL to open"}
+
+    def fill_in_visible_browser():
+        # Opens a real browser on the machine running this server, fills the form, and waits
+        # up to 15 minutes for the user to review and click Submit.
+        # Goes through the full pipeline so the resume is rebuilt from the current base resume.
+        orchestrator.run_pipeline_for_job(
+            job_data["job_id"], auto_submit=False,
+            headless=False, wait_for_user_seconds=900, retry_pending=True)
+
+    import threading
+    threading.Thread(target=fill_in_visible_browser, daemon=True).start()
+    log_audit("LAUNCH_PORTAL", "INFO", app_id, f"Filling {job_data['company']} application in a visible browser", DB_PATH)
+    return {"status": "success", "posting_url": url,
+            "message": f"Filling the {job_data['company']} application in a browser window. Review it and click Submit there."}
 
 @app.patch("/api/applications/{app_id}/response-status")
 def update_response_status(app_id: str, req: ResponseStatusUpdate):
@@ -238,14 +248,8 @@ def get_logs_endpoint(limit: int = 50):
 
 @app.post("/api/run-batch")
 def run_batch_endpoint(req: BatchRunRequest, bg: BackgroundTasks):
-    search_dirs = [
-        Path("/Users/manishshukla/job-hunter"),
-        Path("/Users/manishshukla/.gemini/antigravity-ide/scratch/agent-command-center/output/jobs"),
-        DATA_DIR / "jobs",
-        DASHBOARD_DIR.parent / "tests" / "fixtures"
-    ]
     def background_run():
-        orchestrator.ingest_and_run(search_dirs, max_jobs=req.max_jobs or 25)
+        orchestrator.ingest_and_run(job_search_dirs(), max_jobs=req.max_jobs or 25)
     bg.add_task(background_run)
     return {"status": "processing", "message": f"Autonomous pipeline triggered for up to {req.max_jobs} jobs"}
 

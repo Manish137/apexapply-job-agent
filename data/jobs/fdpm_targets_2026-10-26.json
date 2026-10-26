@@ -1,0 +1,82 @@
+[
+  {
+    "id": "fdpm_valon",
+    "title": "Forward Deployed Product Manager",
+    "company": "Valon",
+    "url": "https://job-boards.greenhouse.io/valon/jobs/4602576006",
+    "description": "Forward Deployed Product Manager (FDPM) acting as the connective tissue between customer deployments and R&D for regulated mortgage-servicing software. Fintech, regulated industry, enterprise deployments, workflow automation.",
+    "location": "San Francisco, CA",
+    "salary": "Not listed",
+    "date_posted": "2026-10"
+  },
+  {
+    "id": "fdpm_scaleai_enterprise",
+    "title": "Forward Deployed Product Manager, Enterprise",
+    "company": "Scale AI",
+    "url": "https://job-boards.greenhouse.io/scaleai/jobs/4673051005",
+    "description": "Own product outcomes across a portfolio of enterprise accounts and feed customer signal back to the platform team. 6+ years in product management, technical program management, or customer-facing product ownership. Generative AI, LLMs, enterprise.",
+    "location": "New York, NY",
+    "salary": "$240,000 - $300,000",
+    "date_posted": "2026-10-19"
+  },
+  {
+    "id": "fdpm_ode_anthropic",
+    "title": "Forward Deployed Product Manager (SF/NY)",
+    "company": "Ode with Anthropic",
+    "url": "https://jobs.ashbyhq.com/odewithanthropic/d93607e0-3e38-4a6f-a05e-f293d3f3bdf4",
+    "description": "Forward Deployed Product Manager working with customers to deploy Claude-based AI solutions. Four days in-person, Fridays remote. LLMs, Claude, agentic workflows, enterprise deployment.",
+    "location": "San Francisco, CA / New York, NY",
+    "salary": "$200,000 - $275,000",
+    "date_posted": "2026-09-16"
+  },
+  {
+    "id": "fdpm_intercom",
+    "title": "Staff Forward Deployed Product Manager",
+    "company": "Intercom",
+    "url": "https://job-boards.greenhouse.io/intercom/jobs/7111007",
+    "description": "Work hands-on with strategic customers to deploy and scale the Fin AI agent, at the intersection of product, solutions, and customer success. AI agents, LLMs, customer deployment.",
+    "location": "San Francisco, CA",
+    "salary": "Not listed",
+    "date_posted": "2026"
+  },
+  {
+    "id": "fdpm_glean",
+    "title": "Forward Deployed Product Manager",
+    "company": "Glean",
+    "url": "https://job-boards.greenhouse.io/gleanwork/jobs/4651950005",
+    "description": "Forward Deployed Product Manager at an enterprise AI search company. Enterprise AI, RAG, LLMs, customer deployment.",
+    "location": "Remote, US",
+    "salary": "Not listed",
+    "date_posted": "2026"
+  },
+  {
+    "id": "fdpm_gradial_austin",
+    "title": "Forward Deployed Product Manager",
+    "company": "Gradial",
+    "url": "https://job-boards.greenhouse.io/gradial/jobs/4061387009",
+    "description": "Help enterprise clients activate Gradial's AI platform inside complex marketing technology environments; define integration scope and lead implementations across CMS, DAM, and workflow tools.",
+    "location": "Austin, TX",
+    "salary": "Not listed",
+    "date_posted": "2026"
+  },
+  {
+    "id": "fdpm_gradial_seattle",
+    "title": "Forward Deployed Product Manager",
+    "company": "Gradial",
+    "url": "https://job-boards.greenhouse.io/gradial/jobs/4060298009",
+    "description": "Help enterprise clients activate Gradial's AI platform inside complex marketing technology environments; define integration scope and lead implementations across CMS, DAM, and workflow tools.",
+    "location": "Seattle, WA",
+    "salary": "Not listed",
+    "date_posted": "2026"
+  },
+  {
+    "id": "fdpm_talkdesk_hls",
+    "title": "Forward Deployed AI Product Manager, HLS",
+    "company": "Talkdesk",
+    "url": "https://job-boards.greenhouse.io/talkdesk2/jobs/8084298",
+    "description": "Forward Deployed AI Product Manager embedded with health systems customers; startup or high-growth experience and contact center familiarity. Healthcare, HIPAA, AI agents.",
+    "location": "Remote, US",
+    "salary": "$210,000 - $250,000",
+    "date_posted": "2026-07"
+  }
+]

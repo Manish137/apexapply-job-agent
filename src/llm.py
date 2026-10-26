@@ -6,6 +6,7 @@ Supports:
 - mock: Deterministic free mock provider for tests and offline usage
 - gemini_free: Google Gemini Free API (Gemini 2.5 Flash / Flash Lite)
 - local_ollama: Local open-source model running via Ollama
+- anthropic: Claude via the Anthropic API (default model claude-haiku-5-5, set ANTHROPIC_MODEL to change)
 """
 
 import os
@@ -13,15 +14,53 @@ import json
 import re
 from typing import Dict, List, Any, Optional, Tuple
 
+from pydantic import BaseModel
+
+
+class ExtractedRequirements(BaseModel):
+    required_skills: List[str]
+    nice_to_have_skills: List[str]
+    min_years_experience: int
+    education_requirement: str
+    required_certifications: List[str]
+    keywords_for_ats: List[str]
+    contact_person: str
+    contact_email: str
+
+
+class TailoredSummary(BaseModel):
+    tailored_summary: str
+    skills_added_emphasis: List[str]
+    skills_gap: List[str]
+
+
+class QuestionAnswer(BaseModel):
+    index: int
+    answer: str
+
+
+class QuestionAnswers(BaseModel):
+    answers: List[QuestionAnswer]
+
+
+CLAUDE_SYSTEM = (
+    "You help a job candidate apply to jobs. You only state facts that appear in the candidate's resume "
+    "or profile. Never invent employers, titles, dates, numbers, degrees, certifications, or skills."
+)
+
 class LLMInterface:
     def __init__(self, provider: Optional[str] = None):
         self.provider = provider or os.getenv("LLM_PROVIDER", "mock")
         self.gemini_key = os.getenv("GEMINI_API_KEY", "")
         self.ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
         self.ollama_model = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
+        self.anthropic_model = os.getenv("ANTHROPIC_MODEL", "claude-haiku-5-5")
+        self._client = None
 
     def extract_requirements(self, jd_text: str, title: str = "", company: str = "") -> Dict[str, Any]:
         """Extract structured requirements from job description with strict JSON schema."""
+        if self.provider == "anthropic":
+            return self._extract_claude(jd_text, title, company)
         if self.provider == "gemini_free" and self.gemini_key:
             return self._extract_gemini(jd_text, title, company)
         elif self.provider == "local_ollama":
@@ -31,12 +70,91 @@ class LLMInterface:
 
     def tailor_resume(self, base_resume_text: str, jd_structured: Dict[str, Any], company: str, title: str) -> Dict[str, Any]:
         """Tailor resume bullets & summary without fabricating unheld skills."""
+        if self.provider == "anthropic":
+            return self._tailor_claude(base_resume_text, jd_structured, company, title)
         if self.provider == "gemini_free" and self.gemini_key:
             return self._tailor_gemini(base_resume_text, jd_structured, company, title)
         elif self.provider == "local_ollama":
             return self._tailor_ollama(base_resume_text, jd_structured, company, title)
         else:
             return self._tailor_mock(base_resume_text, jd_structured, company, title)
+
+    def answer_application_questions(
+        self, questions: List[Dict[str, Any]], profile: Dict[str, Any], resume_text: str,
+        company: str = "", title: str = "", jd_text: str = ""
+    ) -> Dict[str, str]:
+        """Answers open application-form questions. Returns {str(index): answer}; omits unknowns."""
+        if self.provider == "anthropic":
+            return self._answer_claude(questions, profile, resume_text, company, title, jd_text)
+        return {}
+
+    # ─────────────────────────────────────────────────────────────
+    # Claude Provider (Anthropic API)
+    # ─────────────────────────────────────────────────────────────
+    def _claude(self):
+        if self._client is None:
+            import anthropic
+            self._client = anthropic.Anthropic()
+        return self._client
+
+    def _claude_parse(self, prompt: str, schema, effort: str, max_tokens: int = 4000):
+        response = self._claude().messages.parse(
+            model=self.anthropic_model,
+            max_tokens=max_tokens,
+            system=CLAUDE_SYSTEM,
+            output_config={"effort": effort},
+            messages=[{"role": "user", "content": prompt}],
+            output_format=schema,
+        )
+        if response.stop_reason == "refusal":
+            return None
+        return response.parsed_output
+
+    def _extract_claude(self, jd_text: str, title: str, company: str) -> Dict[str, Any]:
+        try:
+            parsed = self._claude_parse(
+                f"Extract the requirements from this job posting for {title} at {company}. Use short "
+                f"canonical skill names. Use \"Hiring Team\" and \"\" when no contact is named.\n\n<job>\n{jd_text}\n</job>",
+                ExtractedRequirements, effort="low")
+            if parsed:
+                d = parsed.model_dump()
+                d["raw_json"] = json.dumps({"source": f"claude:{self.anthropic_model}", **d})
+                return d
+        except Exception:
+            pass
+        return self._extract_mock(jd_text, title, company)
+
+    def _tailor_claude(self, base_resume_text: str, jd_structured: Dict[str, Any], company: str, title: str) -> Dict[str, Any]:
+        try:
+            parsed = self._claude_parse(
+                f"Rewrite only the professional summary of this resume (3-4 sentences, under 90 words) so it "
+                f"speaks to the {title} role at {company}. Reuse only facts and numbers already in the resume. "
+                f"Also list which of the job's required skills the resume clearly shows (skills_added_emphasis) "
+                f"and which it does not (skills_gap).\n\nRequired skills: {jd_structured.get('required_skills', [])}"
+                f"\n\n<resume>\n{base_resume_text}\n</resume>",
+                TailoredSummary, effort="medium")
+            if parsed:
+                return {**parsed.model_dump(), "tailored_text": base_resume_text}
+        except Exception:
+            pass
+        return self._tailor_mock(base_resume_text, jd_structured, company, title)
+
+    def _answer_claude(self, questions, profile, resume_text, company, title, jd_text) -> Dict[str, str]:
+        safe_profile = {k: v for k, v in profile.items() if k not in ("id",)}
+        try:
+            parsed = self._claude_parse(
+                f"Answer these application-form questions for the {title} role at {company}, as the candidate, "
+                f"in first person. For questions with options, answer with one option exactly as written. "
+                f"Keep free-text answers under 120 words. If the resume and profile do not contain the answer "
+                f"(for example a personal fact you do not know), answer with an empty string.\n\n"
+                f"<questions>{json.dumps(questions)}</questions>\n<profile>{json.dumps(safe_profile, default=str)}</profile>\n"
+                f"<resume>\n{resume_text}\n</resume>\n<job>\n{jd_text}\n</job>",
+                QuestionAnswers, effort="medium")
+            if parsed:
+                return {str(a.index): a.answer for a in parsed.answers if a.answer.strip()}
+        except Exception:
+            pass
+        return {}
 
     # ─────────────────────────────────────────────────────────────
     # Mock Provider (Fast, deterministic, free, test-ready)

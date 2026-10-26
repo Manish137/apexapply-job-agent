@@ -33,10 +33,10 @@ class TestOrchestrator(unittest.TestCase):
         conn = get_connection(self.db_path)
         cursor = conn.cursor()
         
-        # High matching product jobs land in applications (Anthropic & Stripe)
-        cursor.execute("SELECT COUNT(*) as c FROM applications")
-        app_count = cursor.fetchone()["c"]
-        self.assertEqual(app_count, 2)
+        # Only the high-matching job lands in applications; Stripe asks for microservices, which the
+        # real base resume does not claim, so its honest score falls under the threshold.
+        cursor.execute("SELECT j.company FROM applications a JOIN jobs j ON a.job_id = j.id")
+        self.assertEqual([r["company"] for r in cursor.fetchall()], ["Anthropic"])
 
         # Non-matching job (Workday Labs Architect) is skipped
         cursor.execute("SELECT status FROM jobs WHERE company = 'Workday Labs'")

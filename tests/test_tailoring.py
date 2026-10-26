@@ -77,6 +77,43 @@ class TestTailoringAndScoring(unittest.TestCase):
         self.assertIn("Sarah Connor", cl_row["recipient_name"])
         conn.close()
 
+    def _first_job(self):
+        conn = get_connection(self.db_path)
+        job_id = conn.execute("SELECT id FROM jobs WHERE company = 'Anthropic'").fetchone()["id"]
+        conn.close()
+        return job_id
+
+    def test_resume_sent_is_the_real_base_resume(self):
+        res = self.tailoring.tailor_for_job(self._first_job())
+        base = self.tailoring.base_resume_path().read_text(encoding="utf-8")
+        sent = Path(res["file_path"]).with_suffix(".txt").read_text(encoding="utf-8")
+        self.assertEqual(sent.strip(), base.strip())
+        html = Path(res["file_path"]).read_text(encoding="utf-8")
+        for invented in ("99.99%", "5M+", "99.8%", "Director", "CSPO", "ATS Match Rating"):
+            self.assertNotIn(invented, html)
+
+    def test_llm_summary_with_invented_numbers_is_rejected(self):
+        class FakeLLM(LLMInterface):
+            def tailor_resume(self, *a, **k):
+                return {"tailored_summary": "PM who grew revenue 300% across 40 enterprise deployments."}
+        self.tailoring.llm = FakeLLM(provider="anthropic")
+        res = self.tailoring.tailor_for_job(self._first_job())
+        self.assertEqual(res["tailored_summary"], "")
+        sent = Path(res["file_path"]).with_suffix(".txt").read_text(encoding="utf-8")
+        self.assertNotIn("300%", sent)
+
+    def test_llm_summary_using_resume_facts_is_applied(self):
+        summary = "Forward deployed PM with 15+ years shipping AI into regulated enterprises, including $900K in annual savings."
+        class FakeLLM(LLMInterface):
+            def tailor_resume(self, *a, **k):
+                return {"tailored_summary": summary}
+        self.tailoring.llm = FakeLLM(provider="anthropic")
+        res = self.tailoring.tailor_for_job(self._first_job())
+        self.assertEqual(res["tailored_summary"], summary)
+        sent = Path(res["file_path"]).with_suffix(".txt").read_text(encoding="utf-8")
+        self.assertIn(summary, sent)
+        self.assertIn("Charles Schwab", sent)
+
     def test_jobright_match_breakdown_diagnostics(self):
         """Verifies JobRight-style structured match breakdown with why you match and gap mitigation."""
         scorer = MatchScorer()

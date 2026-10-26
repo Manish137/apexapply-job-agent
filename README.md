@@ -19,7 +19,9 @@ job-agent/
 │   ├── tailoring.py           # Deep dynamic STAR resume tailoring engine
 │   ├── scoring.py             # Weighted 75/15/10 ATS match scoring (honest gap surfacing)
 │   ├── field_taxonomy.py      # Discovered ATS field registry & mapping store
-│   ├── mapper.py              # Candidate profile -> form field mapper
+│   ├── form_engine.py         # Reads live form fields, answers & fills them, verifies submission
+│   ├── resume_render.py       # Plain-text resume -> HTML / PDF / DOCX
+│   ├── apply_cli.py           # Command line: apply to a job list
 │   ├── handlers/
 │   │   ├── base_handler.py    # Standard interface implemented by all handlers
 │   │   ├── greenhouse.py      # Greenhouse ATS form automation
@@ -30,7 +32,7 @@ job-agent/
 │   ├── executor.py            # Platform handler & screenshot coordinator
 │   ├── orchestrator.py        # End-to-end pipeline coordinator with thresholding
 │   ├── db.py                  # Full SQLite schema & CRUD operations
-│   └── llm.py                 # Multi-provider LLM interface (Mock, Gemini Free, Ollama)
+│   └── llm.py                 # LLM interface (Claude / Haiku 5.5 default, Mock, Gemini, Ollama)
 ├── dashboard/
 │   ├── index.html             # Command Center UI (Review Queue, Ledger, Profile Editor)
 │   ├── styles.css             # Dark-theme design system
@@ -59,25 +61,43 @@ job-agent/
 
 ---
 
-## 🚀 Getting Started
+## 🚀 Applying to Jobs (run on your own computer)
 
-### 1. Install Dependencies
+Job sites must be reachable and you need to see the browser, so run this on your laptop, not a server.
+
 ```bash
-python -m venv venv
-source venv/bin/activate
+python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
+python -m playwright install chromium
+cp .env.example .env        # then paste your ANTHROPIC_API_KEY into .env
 ```
 
-### 2. Run Test Suite (100% Pass Rate)
+**Your resume.** Every application uses `data/base_resumes/manish_shukla_fdpm_resume.txt`
+(override with `BASE_RESUME_PATH`). Per job, only the summary may be rewritten by Claude, and any
+rewrite that introduces a number not in your resume is rejected. Titles, dates, employers and
+metrics are always copied verbatim. A PDF is generated per job and uploaded.
+
+**Apply to the target list** (`data/jobs/*.json`, fields: title, company, url, description, location):
+
 ```bash
-python -m unittest discover -s tests
+# Review mode (recommended): a browser opens per job with the whole form filled and your resume
+# attached. Check it, click Submit yourself; it records SUBMITTED when the confirmation page shows.
+python -m src.apply_cli --jobs data/jobs/fdpm_targets_2026-10-26.json --min-score 0
+
+# Auto mode: submits on its own only when every required question is answered and there is no
+# CAPTCHA; anything else stays in the dashboard Review Queue with the reason.
+python -m src.apply_cli --jobs data/jobs/fdpm_targets_2026-10-26.json --min-score 0 --auto
 ```
 
-### 3. Launch Dashboard & API Server
-```bash
-python -m uvicorn dashboard.server:app --host 0.0.0.0 --port 8765
-```
-Open **`http://localhost:8765`** in your browser.
+Supported: Greenhouse (including embedded career-site iframes), Lever, Ashby, and generic forms.
+Workday (needs an account) and LinkedIn (bans automation) are never automated; they are queued
+for you to apply manually with the generated resume. EEO questions are always answered with
+"decline to self-identify". Questions the profile and resume cannot answer are left for you.
+
+**Dashboard:** `python -m uvicorn dashboard.server:app --port 8765` then open http://localhost:8765.
+"Launch fill" on a Review Queue item opens the filled form in a browser for you to submit.
+
+**Tests:** `python -m pytest -q`
 
 ---
 

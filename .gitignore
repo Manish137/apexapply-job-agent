@@ -25,3 +25,9 @@ data/screenshots/*.png
 .DS_Store
 .vscode/
 .idea/
+
+# Personal documents: never commit (this repository is public)
+data/base_resumes/*
+!data/base_resumes/manish_shukla_master_resume.txt
+data/tailored_resumes/Manish_Shukla_Resume_*
+data/cover_letters/
