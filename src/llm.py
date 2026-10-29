@@ -27,7 +27,8 @@ GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:ge
 NO_FABRICATION_RULES = (
     "Rules: Use ONLY facts that appear in the candidate's resume or profile below. "
     "Never invent employers, titles, dates, degrees, certifications, metrics, or skills. "
-    "If the resume does not support a claim, leave it out."
+    "Do not combine facts: never attribute a tool, technology or result to an employer or client unless the resume "
+    "ties them together. If the resume does not support a claim, leave it out."
 )
 
 
@@ -43,7 +44,10 @@ class LLMInterface:
         if self.provider in ("anthropic",):
             self.provider = "claude"
         self.gemini_key = os.getenv("GEMINI_API_KEY", "")
-        self.gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        self.gemini_model = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+        # Tried in order when a model is overloaded (503) or retired (404)
+        fallbacks = os.getenv("GEMINI_FALLBACK_MODELS", "gemini-3.8-flash,gemini-flash-latest")
+        self.gemini_models = list(dict.fromkeys([self.gemini_model] + [m.strip() for m in fallbacks.split(",") if m.strip()]))
         self.claude_key = os.getenv("ANTHROPIC_API_KEY", "")
         self.claude_model = os.getenv("CLAUDE_MODEL", "claude-opus-5-5")
         self._claude_client = None
@@ -84,18 +88,29 @@ class LLMInterface:
             raise LLMError("GEMINI_API_KEY is not set")
         body: Dict[str, Any] = {
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-            "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.4},
+            # Low thinking keeps form answers fast; the token cap covers thinking plus the answer
+            "generationConfig": {"maxOutputTokens": max(max_tokens, 2048), "thinkingConfig": {"thinkingLevel": "low"}},
         }
         if system:
             body["systemInstruction"] = {"parts": [{"text": system}]}
         if json_mode:
             body["generationConfig"]["responseMimeType"] = "application/json"
 
-        url = GEMINI_URL.format(model=self.gemini_model)
+        errors = []
+        for model in self.gemini_models:
+            text, err = self._gemini_model(model, body)
+            if text is not None:
+                return text
+            errors.append(f"{model}: {err}")
+        raise LLMError("Gemini call failed. " + " | ".join(errors))
+
+    def _gemini_model(self, model: str, body: Dict[str, Any]):
+        """Returns (text, None) on success or (None, reason) so the caller can try the next model."""
+        url = GEMINI_URL.format(model=model)
         last_err = ""
-        for attempt in range(4):
+        for attempt in range(3):
             try:
-                res = requests.post(url, json=body, headers={"x-goog-api-key": self.gemini_key}, timeout=60)
+                res = requests.post(url, json=body, headers={"x-goog-api-key": self.gemini_key}, timeout=90)
             except requests.RequestException as e:
                 last_err = f"network error: {e}"
                 time.sleep(2 ** attempt)
@@ -104,16 +119,20 @@ class LLMInterface:
                 data = res.json()
                 try:
                     parts = data["candidates"][0]["content"]["parts"]
-                    return "".join(p.get("text", "") for p in parts)
+                    return "".join(p.get("text", "") for p in parts if not p.get("thought")), None
                 except (KeyError, IndexError):
-                    raise LLMError(f"Gemini returned no text: {json.dumps(data)[:300]}")
-            last_err = f"HTTP {res.status_code}: {res.text[:300]}"
-            if res.status_code in (429, 500, 502, 503, 504):
-                # Free tier is rate limited per minute; back off and retry
-                time.sleep(min(60, 5 * 2 ** attempt))
+                    return None, f"no text in response: {json.dumps(data)[:200]}"
+            last_err = f"HTTP {res.status_code}: {res.text[:200]}"
+            if res.status_code == 429:
+                # Free tier is rate limited per minute; wait it out on the same model
+                time.sleep(min(60, 10 * 2 ** attempt))
+                continue
+            if res.status_code in (500, 502, 503, 504):
+                # Overloaded model: a short retry, then move on to the next model
+                time.sleep(3)
                 continue
             break
-        raise LLMError(f"Gemini call failed ({self.gemini_model}): {last_err}")
+        return None, last_err
 
     def _claude(self, prompt: str, system: str, json_mode: bool, max_tokens: int) -> str:
         if not self.claude_key:
