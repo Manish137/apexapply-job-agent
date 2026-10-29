@@ -68,6 +68,15 @@ class TestOrchestrator(unittest.TestCase):
         self.assertEqual(conn.execute("SELECT status FROM jobs WHERE id='j6'").fetchone()["status"], "APPLIED")
         conn.close()
 
+    def test_run_is_recorded_for_status_page(self):
+        add_job(self.env, "j7", "Forward Deployed Product Manager", "Cresta", "LLMs, customer discovery")
+        self.orch.sources.discover = lambda titles: {"postings_scanned": 40, "matched": 1, "new": 1}
+        run = self.orch.discover_and_run(max_jobs=5, trigger="schedule")
+        self.assertEqual(run["status"], "done")
+        self.assertEqual(run["results"][0]["company"], "Cresta")
+        self.assertEqual(self.orch.last_run()["discovered"]["postings_scanned"], 40)
+        self.assertIn("finished", self.orch.last_run())
+
     def test_readiness_reports_missing_answers(self):
         self.env.profile(requires_sponsorship="")
         r = self.orch.readiness()

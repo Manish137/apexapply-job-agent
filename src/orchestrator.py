@@ -6,6 +6,8 @@ Select resume & score -> Fill application (cover letter written on demand) -> Lo
 """
 
 import os
+import json
+import threading
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 from datetime import datetime, timezone
@@ -71,6 +73,7 @@ class JobAgentOrchestrator:
                                                scorer=self.scorer, render_pdf=render_pdf)
         self.executor = ApplicationExecutor(db_path=self.db_path, data_dir=self.data_dir, llm=self.llm)
         self.sources = JobSources(db_path=self.db_path, data_dir=self.data_dir)
+        self._run_lock = threading.Lock()
 
     def get_or_create_profile(self) -> Dict[str, Any]:
         profile = get_profile("default_profile", self.db_path)
@@ -197,14 +200,40 @@ class JobAgentOrchestrator:
                 break
         return results
 
-    def discover_and_run(self, max_jobs: int = 10, auto_submit: Optional[bool] = None) -> Dict[str, Any]:
-        prefs = get_preferences(db_path=self.db_path)
-        discovered = self.sources.discover(prefs.get("target_titles") or DEFAULT_TARGET_TITLES)
-        results = self.run_batch_pipeline(max_jobs=max_jobs, auto_submit=auto_submit)
-        log_audit("BATCH_DONE", "INFO", "",
-                  f"Processed {len(results)} jobs: " + ", ".join(f"{r.get('company')}={r['status']}" for r in results),
-                  self.db_path)
-        return {"discovered": discovered, "jobs_processed": len(results), "results": results}
+    def discover_and_run(self, max_jobs: int = 10, auto_submit: Optional[bool] = None, trigger: str = "manual") -> Dict[str, Any]:
+        """One full run. Serialized by a lock and recorded in data/last_run.json for /api/status."""
+        if not self._run_lock.acquire(blocking=False):
+            return {"status": "busy", "message": "A run is already in progress"}
+        run: Dict[str, Any] = {"trigger": trigger, "started": datetime.now(timezone.utc).isoformat(),
+                               "submit_mode": "auto" if (auto_submit if auto_submit is not None else _env_auto_submit()) else "review"}
+        self._write_last_run({**run, "status": "running"})
+        try:
+            prefs = get_preferences(db_path=self.db_path)
+            discovered = self.sources.discover(prefs.get("target_titles") or DEFAULT_TARGET_TITLES)
+            results = self.run_batch_pipeline(max_jobs=max_jobs, auto_submit=auto_submit)
+            log_audit("BATCH_DONE", "INFO", "",
+                      f"Processed {len(results)} jobs: " + ", ".join(f"{r.get('company')}={r['status']}" for r in results),
+                      self.db_path)
+            run.update(status="done", discovered=discovered, jobs_processed=len(results),
+                       results=[{k: r.get(k) for k in ("company", "title", "status", "match_score", "reason", "error")}
+                                | {"detail": (r.get("application") or {}).get("error")} for r in results])
+            return run
+        except Exception as e:
+            run.update(status="error", error=f"{type(e).__name__}: {e}")
+            log_audit("BATCH_ERROR", "ERROR", "", run["error"], self.db_path)
+            return run
+        finally:
+            run["finished"] = datetime.now(timezone.utc).isoformat()
+            self._write_last_run(run)
+            self._run_lock.release()
+
+    def _write_last_run(self, run: Dict[str, Any]):
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        (self.data_dir / "last_run.json").write_text(json.dumps(run, indent=1, default=str))
+
+    def last_run(self) -> Optional[Dict[str, Any]]:
+        p = self.data_dir / "last_run.json"
+        return json.loads(p.read_text()) if p.exists() else None
 
     def ingest_and_run(self, search_dirs: List[Path], max_jobs: int = 10) -> Dict[str, Any]:
         """Legacy path: ingest scraper JSON files, then process."""

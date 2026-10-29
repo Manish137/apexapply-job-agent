@@ -20,7 +20,10 @@ from src.db import get_connection, get_profile, upsert_profile, log_audit
 from src.orchestrator import JobAgentOrchestrator
 from src.field_taxonomy import FieldTaxonomyService
 
-app = FastAPI(title="ApexApply Dashboard API", version="3.0.0")
+APP_VERSION = "3.1.0"
+app = FastAPI(title="ApexApply Dashboard API", version=APP_VERSION)
+AUTO_RUN_HOURS = float(os.getenv("AUTO_RUN_HOURS", "4"))
+AUTO_RUN_MAX_JOBS = int(os.getenv("AUTO_RUN_MAX_JOBS", "10"))
 
 DASHBOARD_USER = os.getenv("DASHBOARD_USER", "apex")
 DASHBOARD_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "")
@@ -77,6 +80,41 @@ def startup():
     taxonomy_service.seed_standard_taxonomy()
     if not DASHBOARD_PASSWORD:
         log_audit("SECURITY", "WARNING", "", "DASHBOARD_PASSWORD is not set: the dashboard is open to anyone who can reach it", DB_PATH)
+    if AUTO_RUN_HOURS > 0:
+        import threading
+        threading.Thread(target=_scheduler, daemon=True).start()
+
+
+def _scheduler():
+    """Runs discover-and-apply every AUTO_RUN_HOURS, first run two minutes after startup."""
+    import time
+    time.sleep(120)
+    while True:
+        try:
+            orchestrator.discover_and_run(max_jobs=AUTO_RUN_MAX_JOBS, trigger="schedule")
+        except Exception as e:
+            log_audit("SCHEDULER_ERROR", "ERROR", "", f"{type(e).__name__}: {e}", DB_PATH)
+        time.sleep(AUTO_RUN_HOURS * 3600)
+
+
+@app.get("/api/status")
+def status_endpoint():
+    """One page that answers "is it working?": setup, schedule, last run, counts and recent problems."""
+    conn = get_connection(DB_PATH)
+    jobs = {r["status"]: r["c"] for r in conn.execute("SELECT status, COUNT(*) c FROM jobs GROUP BY status")}
+    apps = {r["status"]: r["c"] for r in conn.execute("SELECT status, COUNT(*) c FROM applications GROUP BY status")}
+    problems = [dict(r) for r in conn.execute(
+        "SELECT timestamp, action, job_id, details FROM audit_logs WHERE level IN ('WARNING','ERROR') ORDER BY id DESC LIMIT 15")]
+    conn.close()
+    return {
+        "version": APP_VERSION,
+        "readiness": orchestrator.readiness(),
+        "schedule": f"every {AUTO_RUN_HOURS:g}h, up to {AUTO_RUN_MAX_JOBS} jobs" if AUTO_RUN_HOURS > 0 else "off",
+        "last_run": orchestrator.last_run(),
+        "jobs_by_status": jobs,
+        "applications_by_status": apps,
+        "recent_problems": problems,
+    }
 
 
 @app.get("/api/readiness")
@@ -295,7 +333,7 @@ def get_logs_endpoint(limit: int = 50):
 @app.post("/api/run-batch")
 def run_batch_endpoint(req: BatchRunRequest, bg: BackgroundTasks):
     def background_run():
-        orchestrator.discover_and_run(max_jobs=req.max_jobs or 10, auto_submit=req.auto_submit)
+        orchestrator.discover_and_run(max_jobs=req.max_jobs or 10, auto_submit=req.auto_submit, trigger="dashboard")
     bg.add_task(background_run)
     return {"status": "processing", "message": f"Searching job boards and applying to up to {req.max_jobs} jobs"}
 
