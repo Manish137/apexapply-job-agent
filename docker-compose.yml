@@ -1,24 +1,17 @@
-version: '3.8'
-
+# ApexApply on a single VPS.
+# Setup:  put this file and a filled-in .env (from .env.example) in one folder, then
+#         docker compose up -d --build
+# Update: docker compose up -d --build   (rebuilds from the latest commit on APEX_BRANCH)
 services:
   apexapply:
-    image: python:3.11-slim
+    build: https://github.com/Manish137/apexapply-job-agent.git#${APEX_BRANCH:-main}
     container_name: apexapply-agent
-    restart: always
+    restart: unless-stopped
     ports:
       - "8765:8765"
-    environment:
-      - PORT=8765
-      - LLM_PROVIDER=mock
+    env_file: .env
     volumes:
       - apexapply_data:/app/data
-    command: >
-      sh -c "apt-get update && apt-get install -y git curl gcc &&
-             rm -rf /tmp/app_src && git clone https://github.com/Manish137/apexapply-job-agent.git /tmp/app_src &&
-             mkdir -p /app && cp -rn /tmp/app_src/* /app/ 2>/dev/null || cp -r /tmp/app_src/* /app/ &&
-             cd /app && pip install --no-cache-dir -r requirements.txt &&
-             python -m playwright install --with-deps chromium 2>/dev/null || true &&
-             python -m uvicorn dashboard.server:app --host 0.0.0.0 --port 8765"
 
 volumes:
   apexapply_data:

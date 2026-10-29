@@ -10,9 +10,18 @@ import json
 import os
 from pathlib import Path
 from typing import Dict, List, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 DEFAULT_DB_PATH = Path(__file__).parent.parent / "data" / "job_agent.db"
+
+FDPM_TITLES = [
+    "Forward Deployed Product Manager",
+    "Forward Deployed Product Owner",
+    "Forward Deployed PM",
+    "Deployed Product Manager",
+    "FDPM",
+]
+LEGACY_DEFAULT_TITLES_JSON = '["Principal AI Product Manager", "Lead AI/ML PM", "Director of Product", "Senior Product Leader", "Fintech PM"]'
 
 def get_connection(db_path: Optional[Path] = None) -> sqlite3.Connection:
     target_path = Path(db_path) if db_path else DEFAULT_DB_PATH
@@ -202,17 +211,21 @@ def init_db(db_path: Optional[Path] = None):
             max_daily_applications, pacing_mode, auto_tailor_threshold
         ) VALUES (
             'default_preferences',
-            '["Principal AI Product Manager", "Lead AI/ML PM", "Director of Product", "Senior Product Leader", "Fintech PM"]',
+            ?,
             180000,
-            '["Remote", "San Francisco, CA", "Bay Area, CA"]',
-            1,
-            'US Citizen',
+            '["Remote", "San Francisco, CA", "Bay Area, CA", "New York, NY"]',
+            0,
+            '',
             '["Revature", "CyberCoders", "Dice Spam Corp"]',
             15,
             'balanced',
-            70
+            40
         )
-        """)
+        """, (json.dumps(FDPM_TITLES),))
+
+    # Preferences still on the v2 defaults were never chosen by the user: move them to the FDPM search
+    cursor.execute("UPDATE user_preferences SET target_titles_json = ?, auto_tailor_threshold = 40 WHERE target_titles_json = ?",
+                   (json.dumps(FDPM_TITLES), LEGACY_DEFAULT_TITLES_JSON))
 
     conn.commit()
     conn.close()
@@ -223,7 +236,7 @@ def log_audit(action: str, level: str = "INFO", job_id: str = "", details: str =
     cursor = conn.cursor()
     cursor.execute(
         "INSERT INTO audit_logs (timestamp, level, action, job_id, details) VALUES (?, ?, ?, ?, ?)",
-        (datetime.utcnow().isoformat(), level, action, job_id, details)
+        (datetime.now(timezone.utc).isoformat(), level, action, job_id, details)
     )
     conn.commit()
     conn.close()
@@ -244,8 +257,8 @@ def upsert_profile(profile_data: Dict[str, Any], db_path: Optional[Path] = None)
         profile_data.get("address", ""),
         profile_data.get("linkedin_url", ""),
         profile_data.get("portfolio_url", ""),
-        profile_data.get("work_authorization", "US Citizen / Authorized"),
-        profile_data.get("salary_expectation", "$180,000 - $220,000"),
+        profile_data.get("work_authorization", ""),
+        profile_data.get("salary_expectation", ""),
         profile_data.get("years_experience", 15),
         json.dumps(profile_data.get("custom_field_answers", {}))
     ))
@@ -276,7 +289,7 @@ def get_preferences(pref_id: str = "default_preferences", db_path: Optional[Path
     if not row:
         return {
             "id": pref_id,
-            "target_titles": ["Principal AI Product Manager", "Lead AI/ML PM", "Director of Product", "Fintech PM"],
+            "target_titles": list(FDPM_TITLES),
             "min_salary": 180000,
             "location_preferences": ["Remote", "San Francisco, CA"],
             "remote_only": True,
@@ -284,7 +297,7 @@ def get_preferences(pref_id: str = "default_preferences", db_path: Optional[Path
             "blacklisted_companies": ["Revature", "CyberCoders"],
             "max_daily_applications": 15,
             "pacing_mode": "balanced",
-            "auto_tailor_threshold": 70
+            "auto_tailor_threshold": 40
         }
     d = dict(row)
     return {
@@ -320,7 +333,7 @@ def upsert_preferences(pref_data: Dict[str, Any], db_path: Optional[Path] = None
         int(pref_data.get("max_daily_applications", 15)),
         pref_data.get("pacing_mode", "balanced"),
         int(pref_data.get("auto_tailor_threshold", 70)),
-        datetime.utcnow().isoformat()
+        datetime.now(timezone.utc).isoformat()
     ))
     conn.commit()
     conn.close()
@@ -344,7 +357,7 @@ def save_cover_letter(
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         cl_id, job_id, application_id, recipient_name, recipient_email,
-        cover_letter_text, cover_letter_html, datetime.utcnow().isoformat()
+        cover_letter_text, cover_letter_html, datetime.now(timezone.utc).isoformat()
     ))
     conn.commit()
     conn.close()

@@ -418,7 +418,11 @@ window.launchFillApplication = async function(appId) {
     const res = await fetch(`${API_BASE}/api/applications/${appId}/launch-fill`, { method: 'POST' });
     if (res.ok) {
       const data = await res.json();
-      alert(`Portal Launched & Fields Pre-Filled!\n\nTarget URL: ${data.posting_url}\nPlatform: ${data.platform_type.toUpperCase()}`);
+      if (data.posting_url) {
+        window.open(data.posting_url, '_blank', 'noopener');
+      } else {
+        alert(data.message || 'No application URL for this job');
+      }
     }
   } catch (err) {
     alert('Launch error: ' + err.message);
@@ -557,18 +561,44 @@ function renderProfileEditor(p) {
       <input type="url" id="prof-portfolio" class="input" value="${escapeHtml(p.portfolio_url || '')}">
     </div>
     <div class="field-card">
-      <label>Work Authorization</label>
-      <input type="text" id="prof-auth" class="input" value="${escapeHtml(p.work_authorization || 'US Citizen')}">
+      <label>Work Authorization (free text, e.g. "US Citizen")</label>
+      <input type="text" id="prof-auth" class="input" value="${escapeHtml(p.work_authorization || '')}">
     </div>
     <div class="field-card">
       <label>Years of Experience</label>
       <input type="number" id="prof-years" class="input" value="${p.years_experience || 15}">
     </div>
+    <div class="field-card">
+      <label>Salary Expectation (e.g. "$180,000 - $220,000")</label>
+      <input type="text" id="prof-salary" class="input" value="${escapeHtml(p.salary_expectation || '')}">
+    </div>
+    ${ANSWER_FIELDS.map(([key, label, choices]) => {
+      const v = (p.custom_field_answers || {})[key] || '';
+      const input = choices
+        ? `<select id="ans-${key}" class="input"><option value="">(not set)</option>${choices.map(c => `<option ${c === v ? 'selected' : ''}>${c}</option>`).join('')}</select>`
+        : `<input type="text" id="ans-${key}" class="input" value="${escapeHtml(v)}">`;
+      return `<div class="field-card"><label>${label}</label>${input}</div>`;
+    }).join('')}
   `;
 }
 
+// Application questions answered automatically from these values
+const ANSWER_FIELDS = [
+  ['work_authorized', 'Legally authorized to work in the US?', ['Yes', 'No']],
+  ['requires_sponsorship', 'Will you now or in future require visa sponsorship?', ['Yes', 'No']],
+  ['willing_to_relocate', 'Willing to relocate?', ['Yes', 'No']],
+  ['location', 'Current location (city, state)', null],
+  ['current_company', 'Current company', null],
+  ['current_title', 'Current title', null],
+  ['start_availability', 'Notice period / earliest start', null],
+  ['how_did_you_hear', 'How did you hear about us (default answer)', null],
+  ['github_url', 'GitHub URL (optional)', null],
+];
+
 async function saveProfile() {
   const getVal = id => (document.getElementById(id) || {}).value || '';
+  const answers = Object.assign({}, (state.profile || {}).custom_field_answers || {});
+  ANSWER_FIELDS.forEach(([key]) => { answers[key] = getVal(`ans-${key}`); });
   const profileData = {
     full_name: getVal('prof-full-name'),
     email: getVal('prof-email'),
@@ -577,7 +607,9 @@ async function saveProfile() {
     linkedin_url: getVal('prof-linkedin'),
     portfolio_url: getVal('prof-portfolio'),
     work_authorization: getVal('prof-auth'),
-    years_experience: parseInt(getVal('prof-years')) || 15
+    salary_expectation: getVal('prof-salary'),
+    years_experience: parseInt(getVal('prof-years')) || 15,
+    custom_field_answers: answers
   };
 
   try {
@@ -650,7 +682,7 @@ async function runBatchPipeline() {
     const res = await fetch(`${API_BASE}/api/run-batch`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ max_jobs: 25, auto_submit: false })
+      body: JSON.stringify({ max_jobs: 10 })
     });
     if (res.ok) {
       setTimeout(() => {

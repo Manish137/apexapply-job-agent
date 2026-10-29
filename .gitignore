@@ -25,3 +25,6 @@ data/screenshots/*.png
 .DS_Store
 .vscode/
 .idea/
+
+# Personal data: databases, resumes, cover letters and screenshots live only on the server
+data/

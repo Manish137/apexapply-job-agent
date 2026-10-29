@@ -1,33 +1,51 @@
+import os
 import unittest
-from src.llm import LLMInterface
+from unittest import mock
 
-class TestLLMInterface(unittest.TestCase):
-    def setUp(self):
-        self.llm = LLMInterface(provider="mock")
+from src.llm import LLMInterface, LLMError, _best_option
 
-    def test_extract_requirements_mock(self):
-        jd = "We are seeking a Lead AI Product Manager with experience in LangChain, Python, LLMs, and Agile frameworks. Hiring Manager: John Doe (john@scale.ai)."
-        result = self.llm.extract_requirements(jd, title="Lead AI Product Manager", company="Scale AI")
-        
-        self.assertIn("LangChain", result["required_skills"])
-        self.assertIn("Python", result["required_skills"])
-        self.assertIn("LLMs", result["required_skills"])
-        self.assertEqual(result["contact_person"], "John Doe")
-        self.assertEqual(result["contact_email"], "john@scale.ai")
-        self.assertIsInstance(result["min_years_experience"], int)
 
-    def test_tailor_resume_mock(self):
-        jd_reqs = {
-            "required_skills": ["LangChain", "LLMs", "Rust", "Product Management"],
-            "nice_to_have_skills": ["Docker"]
-        }
-        base_resume = "Manish Shukla - 15+ years experience in AI and Fintech Product Leadership."
-        tailored = self.llm.tailor_resume(base_resume, jd_reqs, company="Anthropic", title="Principal PM")
-        
-        self.assertIn("LangChain", tailored["skills_added_emphasis"])
-        self.assertIn("Rust", tailored["skills_gap"])  # Honestly flagged as gap, not fabricated
-        self.assertIn("Anthropic", tailored["tailored_summary"])
-        self.assertIn("Principal PM", tailored["tailored_summary"])
+class TestLLM(unittest.TestCase):
+    def test_mock_extraction_finds_fdpm_skills(self):
+        res = LLMInterface("mock").extract_requirements(
+            "Forward Deployed PM. 5+ years. Customer discovery with stakeholders, LLMs, SQL and KYC/AML.",
+            "Forward Deployed Product Manager", "Ode")
+        for skill in ("LLMs", "SQL", "Risk & Compliance", "Customer Discovery", "Forward Deployed"):
+            self.assertIn(skill, res["required_skills"])
+        self.assertEqual(res["min_years_experience"], 5)
+
+    def test_real_providers_fail_loudly_without_keys(self):
+        with mock.patch.dict(os.environ, {"GEMINI_API_KEY": "", "ANTHROPIC_API_KEY": ""}):
+            for provider in ("gemini", "claude"):
+                llm = LLMInterface(provider)
+                with self.assertRaises(LLMError):
+                    llm.extract_requirements("jd", "t", "c")
+                self.assertFalse(llm.status()["ok"])
+
+    def test_gemini_parses_json_response(self):
+        llm = LLMInterface("gemini")
+        llm.gemini_key = "k"
+        fake = mock.Mock(status_code=200, json=lambda: {"candidates": [{"content": {"parts": [
+            {"text": '{"answer": "No", "confident": true}'}]}}]})
+        with mock.patch("src.llm.requests.post", return_value=fake):
+            ans = llm.answer_question("Require sponsorship?", "select", ["Yes", "No"], {"full_name": "M"}, "", {})
+        self.assertEqual(ans, {"answer": "No", "confident": True})
+
+    def test_option_answers_must_be_real_options(self):
+        llm = LLMInterface("gemini")
+        llm.gemini_key = "k"
+        fake = mock.Mock(status_code=200, json=lambda: {"candidates": [{"content": {"parts": [
+            {"text": '{"answer": "Maybe", "confident": true}'}]}}]})
+        with mock.patch("src.llm.requests.post", return_value=fake):
+            ans = llm.answer_question("Relocate?", "radio", ["Yes", "No"], {}, "", {})
+        self.assertFalse(ans["confident"])
+
+    def test_best_option(self):
+        opts = ["Yes", "No", "Decline To Self Identify"]
+        self.assertEqual(_best_option("no", opts), "No")
+        self.assertEqual(_best_option("Decline", opts), "Decline To Self Identify")
+        self.assertIsNone(_best_option("perhaps", opts))
+
 
 if __name__ == "__main__":
     unittest.main()

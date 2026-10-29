@@ -8,26 +8,38 @@ import os
 import json
 from pathlib import Path
 from typing import Dict, List, Any, Optional
-from datetime import datetime, timedelta
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Query
+from datetime import datetime, timedelta, timezone
+import base64
+import secrets
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Query, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, Response
 from pydantic import BaseModel
 
 from src.db import get_connection, get_profile, upsert_profile, log_audit
 from src.orchestrator import JobAgentOrchestrator
 from src.field_taxonomy import FieldTaxonomyService
 
-app = FastAPI(title="ApexApply Dashboard API", version="2.5.0")
+app = FastAPI(title="ApexApply Dashboard API", version="3.0.0")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+DASHBOARD_USER = os.getenv("DASHBOARD_USER", "apex")
+DASHBOARD_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "")
+
+
+@app.middleware("http")
+async def basic_auth(request: Request, call_next):
+    """The dashboard holds personal data and can submit applications, so it sits behind a password."""
+    if not DASHBOARD_PASSWORD:
+        return await call_next(request)
+    header = request.headers.get("authorization", "")
+    if header.startswith("Basic "):
+        try:
+            user, _, pw = base64.b64decode(header[6:]).decode().partition(":")
+            if secrets.compare_digest(user, DASHBOARD_USER) and secrets.compare_digest(pw, DASHBOARD_PASSWORD):
+                return await call_next(request)
+        except Exception:
+            pass
+    return Response(status_code=401, headers={"WWW-Authenticate": 'Basic realm="ApexApply"'})
 
 DASHBOARD_DIR = Path(__file__).parent
 DATA_DIR = DASHBOARD_DIR.parent / "data"
@@ -54,8 +66,8 @@ class CustomJobRequest(BaseModel):
     auto_submit: Optional[bool] = False
 
 class BatchRunRequest(BaseModel):
-    max_jobs: Optional[int] = 25
-    auto_submit: Optional[bool] = False
+    max_jobs: Optional[int] = 10
+    auto_submit: Optional[bool] = None  # None = use SUBMIT_MODE
 
 @app.on_event("startup")
 def startup():
@@ -63,14 +75,61 @@ def startup():
     init_db(DB_PATH)
     orchestrator.get_or_create_profile()
     taxonomy_service.seed_standard_taxonomy()
-    # Ingest historical jobs on startup if empty
-    search_dirs = [
-        Path("/Users/manishshukla/job-hunter"),
-        Path("/Users/manishshukla/.gemini/antigravity-ide/scratch/agent-command-center/output/jobs"),
-        DATA_DIR / "jobs",
-        DASHBOARD_DIR.parent / "tests" / "fixtures"
-    ]
-    orchestrator.ingestion.scan_scraper_directories(search_dirs)
+    if not DASHBOARD_PASSWORD:
+        log_audit("SECURITY", "WARNING", "", "DASHBOARD_PASSWORD is not set: the dashboard is open to anyone who can reach it", DB_PATH)
+
+
+@app.get("/api/readiness")
+def readiness_endpoint():
+    """LLM health, uploaded resumes, and profile answers still needed for auto-submit."""
+    return orchestrator.readiness()
+
+
+@app.post("/api/base-resume/{variant}")
+async def upload_base_resume(variant: str, request: Request):
+    """Upload a reviewed resume PDF as the raw request body: curl --data-binary @resume.pdf"""
+    try:
+        return orchestrator.tailoring.resumes.save_pdf(variant, await request.body())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/sources")
+def get_sources_endpoint():
+    return orchestrator.sources.load()
+
+
+@app.put("/api/sources")
+def put_sources_endpoint(sources: Dict[str, List[str]]):
+    orchestrator.sources.save(sources)
+    return orchestrator.sources.load()
+
+
+@app.post("/api/discover")
+def discover_endpoint():
+    """Scans the configured job boards for target titles without applying."""
+    from src.db import get_preferences
+    return orchestrator.sources.discover(get_preferences(db_path=DB_PATH).get("target_titles"))
+
+
+@app.post("/api/jobs/{job_id}/apply")
+def apply_job_endpoint(job_id: str, auto_submit: Optional[bool] = None):
+    return orchestrator.run_pipeline_for_job(job_id, auto_submit=auto_submit, enforce_titles=False)
+
+
+@app.get("/api/jobs")
+def list_jobs_endpoint(status: Optional[str] = None, limit: int = 100):
+    conn = get_connection(DB_PATH)
+    q = "SELECT id, title, company, location, posting_url, platform_type, salary_range, status, date_scraped FROM jobs"
+    params: List[Any] = []
+    if status:
+        q += " WHERE status = ?"
+        params.append(status)
+    q += " ORDER BY date_scraped DESC LIMIT ?"
+    params.append(limit)
+    rows = [dict(r) for r in conn.execute(q, params).fetchall()]
+    conn.close()
+    return {"jobs": rows}
 
 @app.get("/api/stats")
 def get_stats():
@@ -126,7 +185,7 @@ def list_applications(status: Optional[str] = None, period: Optional[str] = None
         params.append(status)
     
     if period == "past_week":
-        seven_days_ago = (datetime.utcnow() - timedelta(days=7)).strftime("%Y-%m-%d")
+        seven_days_ago = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d")
         clauses.append("(j.date_scraped >= ? OR j.date_posted >= ?)")
         params.extend([seven_days_ago, seven_days_ago])
 
@@ -168,7 +227,7 @@ def launch_fill(app_id: str):
     conn = get_connection(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("""
-    SELECT a.*, j.posting_url, j.company, j.title, tr.file_path as resume_file_path
+    SELECT a.*, j.posting_url, j.platform_type, j.company, j.title, tr.file_path as resume_file_path
     FROM applications a
     JOIN jobs j ON a.job_id = j.id
     LEFT JOIN tailored_resumes tr ON a.tailored_resume_id = tr.id
@@ -183,14 +242,11 @@ def launch_fill(app_id: str):
     job_data = dict(row)
     url = job_data.get("posting_url")
 
-    # Open the browser window to the job URL
+    # The server is headless; the dashboard opens this URL in the user's own browser
     if url and url.startswith("http"):
-        import subprocess
-        subprocess.Popen(["open", url])
-        log_audit("LAUNCH_PORTAL", "INFO", app_id, f"Opened live ATS portal for {job_data['company']} in browser", DB_PATH)
-        return {"status": "success", "message": f"Opened live portal for {job_data['company']} in browser"}
-    else:
-        return {"status": "warning", "message": "No valid URL to open"}
+        log_audit("LAUNCH_PORTAL", "INFO", app_id, f"Opened {job_data['company']} application for manual finish", DB_PATH)
+        return {"status": "success", "posting_url": url, "platform_type": job_data.get("platform_type") or "custom"}
+    return {"status": "warning", "message": "No valid URL to open"}
 
 @app.patch("/api/applications/{app_id}/response-status")
 def update_response_status(app_id: str, req: ResponseStatusUpdate):
@@ -238,16 +294,10 @@ def get_logs_endpoint(limit: int = 50):
 
 @app.post("/api/run-batch")
 def run_batch_endpoint(req: BatchRunRequest, bg: BackgroundTasks):
-    search_dirs = [
-        Path("/Users/manishshukla/job-hunter"),
-        Path("/Users/manishshukla/.gemini/antigravity-ide/scratch/agent-command-center/output/jobs"),
-        DATA_DIR / "jobs",
-        DASHBOARD_DIR.parent / "tests" / "fixtures"
-    ]
     def background_run():
-        orchestrator.ingest_and_run(search_dirs, max_jobs=req.max_jobs or 25)
+        orchestrator.discover_and_run(max_jobs=req.max_jobs or 10, auto_submit=req.auto_submit)
     bg.add_task(background_run)
-    return {"status": "processing", "message": f"Autonomous pipeline triggered for up to {req.max_jobs} jobs"}
+    return {"status": "processing", "message": f"Searching job boards and applying to up to {req.max_jobs} jobs"}
 
 @app.post("/api/apply-custom")
 def apply_custom_endpoint(req: CustomJobRequest):
@@ -281,7 +331,7 @@ def apply_custom_endpoint(req: CustomJobRequest):
     conn.commit()
     conn.close()
 
-    res = orchestrator.run_pipeline_for_job(norm["id"], auto_submit=req.auto_submit)
+    res = orchestrator.run_pipeline_for_job(norm["id"], auto_submit=req.auto_submit, enforce_titles=False)
     return {"status": "success", "result": res}
 
 @app.get("/api/resume/compare/{job_id}")
@@ -308,10 +358,8 @@ def compare_resume_endpoint(job_id: str):
         with open(d["original_file_path"], "r", encoding="utf-8") as f:
             original_text = f.read()
 
-    tailored_text = ""
-    if d.get("file_path") and Path(d["file_path"]).exists():
-        with open(d["file_path"], "r", encoding="utf-8") as f:
-            tailored_text = f.read()
+    # The resume sent is the candidate's own PDF; show where it is served from
+    tailored_text = f'<p>Resume sent: <a href="/api/resume/preview/{job_id}" target="_blank">{Path(d.get("file_path") or "").name}</a> (unchanged PDF)</p>'
 
     return {
         "job_id": job_id,
@@ -380,11 +428,11 @@ def get_match_breakdown_endpoint(job_id: str):
     profile = get_profile(db_path=DB_PATH) or {}
     prefs = get_preferences(db_path=DB_PATH)
 
-    candidate_skills = [
-        "Product Leadership", "Product Strategy", "Generative AI", "AI/ML", "LLMs", "RAG",
-        "LangChain", "LlamaIndex", "Vector Databases", "Prompt Engineering", "Python", "SQL",
-        "Appian", "Pega", "Fintech", "Payments", "Zelle & Fraud", "Risk & Compliance", "Agile/Scrum"
-    ]
+    # Skills actually found in the resume used for this job
+    conn = get_connection(DB_PATH)
+    tr = conn.execute("SELECT skills_added_emphasis FROM tailored_resumes WHERE job_id = ?", (job_id,)).fetchone()
+    conn.close()
+    candidate_skills = json.loads(tr["skills_added_emphasis"] or "[]") if tr else []
 
     scorer = MatchScorer()
     breakdown = scorer.generate_match_breakdown(
@@ -418,7 +466,7 @@ def preview_resume_endpoint(job_id: str):
     row = cursor.fetchone()
     conn.close()
     if row and Path(row["file_path"]).exists():
-        return FileResponse(str(row["file_path"]), media_type="text/html")
+        return FileResponse(str(row["file_path"]), media_type="application/pdf")
     raise HTTPException(status_code=404, detail="Tailored resume not found")
 
 # Static Dashboard Files

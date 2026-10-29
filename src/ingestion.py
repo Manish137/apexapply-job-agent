@@ -10,9 +10,10 @@ import json
 import glob
 import re
 import hashlib
+import html
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
-from datetime import datetime
+from datetime import datetime, timezone
 
 from src.db import get_connection, log_audit
 
@@ -52,19 +53,20 @@ class IngestionService:
         if isinstance(location, list):
             location = ", ".join(location)
 
-        salary = raw.get("salary") or raw.get("compensation") or "Not listed"
+        salary = str(raw.get("salary") or raw.get("compensation") or "Not listed")
         url = raw.get("url") or raw.get("posting_url") or raw.get("apply_url") or raw.get("link") or ""
         
         if url.startswith("https://remoteok.comhttps://"):
             url = url.replace("https://remoteok.comhttps://", "https://")
 
         description = raw.get("description") or raw.get("description_raw") or raw.get("body") or raw.get("text") or ""
-        # Strip HTML tags
+        # Strip HTML tags (Greenhouse returns entity-escaped HTML)
+        description = html.unescape(str(description))
         clean_desc = re.sub(r'<[^>]+>', ' ', description).strip()
         clean_desc = re.sub(r'\s+', ' ', clean_desc)
 
         date_posted = str(raw.get("date_posted") or raw.get("datePosted") or raw.get("date") or "Recent")
-        date_scraped = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        date_scraped = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
         platform_type = self.detect_platform_type(url)
         remote_flag = 1 if any(k in f"{title} {location} {clean_desc}".lower() for k in ["remote", "work from home", "anywhere"]) else 0
@@ -103,7 +105,7 @@ class IngestionService:
             return 0, 0
 
         raw_items = []
-        file_scrape_date = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        file_scrape_date = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
         if isinstance(data, list):
             raw_items = data
         elif isinstance(data, dict):
@@ -116,6 +118,11 @@ class IngestionService:
             else:
                 raw_items = [data]
 
+        return self.ingest_items(raw_items, source_id=file_path.name,
+                                 scraped_at=data.get("generated_at") if isinstance(data, dict) else None)
+
+    def ingest_items(self, raw_items: List[Dict[str, Any]], source_id: str, scraped_at: Optional[str] = None) -> Tuple[int, int]:
+        """Normalizes and inserts raw job dicts, skipping duplicates. Returns (new_count, dup_count)."""
         conn = get_connection(self.db_path)
         cursor = conn.cursor()
 
@@ -126,38 +133,34 @@ class IngestionService:
             if not isinstance(raw, dict) or not (raw.get("title") or raw.get("position")):
                 continue
 
-            norm = self.normalize_job_dict(raw, source_id=file_path.name)
-            # Use scrape date from file metadata if available
-            if "generated_at" in data:
-                norm["date_scraped"] = str(data["generated_at"])
-            
-            # Check for existing job by ID
-            cursor.execute("SELECT id FROM jobs WHERE id = ?", (norm["id"],))
-            existing = cursor.fetchone()
+            norm = self.normalize_job_dict(raw, source_id=source_id)
+            if scraped_at:
+                norm["date_scraped"] = str(scraped_at)
 
-            if existing:
+            cursor.execute("SELECT id FROM jobs WHERE id = ?", (norm["id"],))
+            if cursor.fetchone():
                 dup_count += 1
-            else:
-                cursor.execute("""
-                INSERT INTO jobs (
-                    id, source_scraper_id, title, company, description_raw,
-                    posting_url, platform_type, location, remote_flag, salary_range,
-                    contact_person, contact_email, date_scraped, date_posted, status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    norm["id"], norm["source_scraper_id"], norm["title"], norm["company"],
-                    norm["description_raw"], norm["posting_url"], norm["platform_type"],
-                    norm["location"], norm["remote_flag"], norm["salary_range"],
-                    norm["contact_person"], norm["contact_email"], norm["date_scraped"],
-                    norm["date_posted"], norm["status"]
-                ))
-                new_count += 1
+                continue
+            cursor.execute("""
+            INSERT INTO jobs (
+                id, source_scraper_id, title, company, description_raw,
+                posting_url, platform_type, location, remote_flag, salary_range,
+                contact_person, contact_email, date_scraped, date_posted, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                norm["id"], norm["source_scraper_id"], norm["title"], norm["company"],
+                norm["description_raw"], norm["posting_url"], norm["platform_type"],
+                norm["location"], norm["remote_flag"], norm["salary_range"],
+                norm["contact_person"], norm["contact_email"], norm["date_scraped"],
+                norm["date_posted"], norm["status"]
+            ))
+            new_count += 1
 
         conn.commit()
         conn.close()
 
         if new_count > 0:
-            log_audit("INGEST_BATCH", "INFO", "", f"Ingested {new_count} new jobs from {file_path.name} ({dup_count} dups skipped)", self.db_path)
+            log_audit("INGEST_BATCH", "INFO", "", f"Ingested {new_count} new jobs from {source_id} ({dup_count} dups skipped)", self.db_path)
 
         return new_count, dup_count
 

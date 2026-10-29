@@ -1,143 +1,122 @@
 """
 Application Executor for ApexApply Job Agent
 ============================================
-Coordinates platform-specific handlers to execute form filling, screenshot logging,
-and application recording in Mode A (manual review) or Mode B (auto-submit).
+Runs the platform handler for a job and records the honest outcome in the
+applications ledger.
 """
 
 import json
 from pathlib import Path
-from typing import Dict, List, Any, Optional
-from datetime import datetime
+from typing import Dict, Any, Optional, Callable
+from datetime import datetime, timezone
 
 from src.db import get_connection, log_audit
+from src.llm import LLMInterface
 from src.handlers.base_handler import BaseHandler, FillResult
 from src.handlers.greenhouse import GreenhouseHandler
 from src.handlers.lever import LeverHandler
+from src.handlers.ashby import AshbyHandler
 from src.handlers.workday import WorkdayHandler
 from src.handlers.linkedin_easy_apply import LinkedInEasyApplyHandler
 from src.handlers.generic_custom import GenericCustomHandler
 
 DEFAULT_DATA_DIR = Path(__file__).parent.parent / "data"
 
+
 class ApplicationExecutor:
-    def __init__(self, db_path: Optional[Path] = None, data_dir: Optional[Path] = None):
+    def __init__(self, db_path: Optional[Path] = None, data_dir: Optional[Path] = None, llm: Optional[LLMInterface] = None):
         self.db_path = db_path
         self.data_dir = data_dir or DEFAULT_DATA_DIR
         self.screenshots_dir = self.data_dir / "screenshots"
         self.screenshots_dir.mkdir(parents=True, exist_ok=True)
-
         self.handlers: Dict[str, BaseHandler] = {
-            "greenhouse": GreenhouseHandler(),
-            "lever": LeverHandler(),
+            "greenhouse": GreenhouseHandler(llm),
+            "lever": LeverHandler(llm),
+            "ashby": AshbyHandler(llm),
             "workday": WorkdayHandler(),
             "linkedin": LinkedInEasyApplyHandler(),
-            "custom": GenericCustomHandler(),
-            "remoteok": GenericCustomHandler(),
-            "ashby": LeverHandler() # Ashby shares similar structure to Lever
+            "custom": GenericCustomHandler(llm),
+            "remoteok": GenericCustomHandler(llm),
         }
 
     def get_handler(self, platform_type: str) -> BaseHandler:
-        return self.handlers.get(platform_type.lower(), self.handlers["custom"])
+        return self.handlers.get((platform_type or "custom").lower(), self.handlers["custom"])
 
     def execute_application(
         self,
         job_id: str,
         profile: Dict[str, Any],
-        auto_submit: bool = False
+        auto_submit: bool = False,
+        resume_text: str = "",
+        cover_letter: Optional[Callable[[], Dict[str, Any]]] = None,
+        html_fixture: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
-        """Fills and records an application for a tailored job."""
         conn = get_connection(self.db_path)
         cursor = conn.cursor()
-
-        # Idempotency check: Don't apply twice if already SUBMITTED or PENDING_REVIEW
-        cursor.execute("SELECT * FROM applications WHERE job_id = ? AND status IN ('SUBMITTED', 'PENDING_REVIEW')", (job_id,))
-        existing_app = cursor.fetchone()
-        if existing_app:
-            conn.close()
-            return dict(existing_app)
-
+        # Never apply twice
+        cursor.execute("SELECT * FROM applications WHERE job_id = ? AND status = 'SUBMITTED'", (job_id,))
+        existing = cursor.fetchone()
         cursor.execute("SELECT * FROM jobs WHERE id = ?", (job_id,))
         job_row = cursor.fetchone()
-        if not job_row:
-            conn.close()
-            return None
-        job = dict(job_row)
-
         cursor.execute("SELECT * FROM tailored_resumes WHERE job_id = ?", (job_id,))
         tailored_row = cursor.fetchone()
-        if not tailored_row:
-            conn.close()
+        conn.close()
+        if existing:
+            return dict(existing)
+        if not job_row or not tailored_row:
             return None
-        tailored = dict(tailored_row)
-        tailored_resume_path = tailored.get("file_path", "")
-        match_score = tailored.get("match_score", 70)
-        skills_targeted = json.loads(tailored.get("skills_added_emphasis") or "[]")
+        job, tailored = dict(job_row), dict(tailored_row)
 
-        platform_type = job.get("platform_type", "custom")
+        platform_type = job.get("platform_type") or "custom"
         handler = self.get_handler(platform_type)
-
-        # Enforce Section 13 Decision 4: LinkedIn & Workday stay Mode A manual_confirm
-        if platform_type in ["linkedin", "workday"]:
-            auto_submit = False
-
         screenshot_path = str(self.screenshots_dir / f"screenshot_{job_id}.png")
 
-        # Execute handler fill
-        fill_result: FillResult = handler.fill_form(
-            job=job,
-            tailored_resume_path=tailored_resume_path,
-            profile=profile,
-            screenshot_path=screenshot_path,
-            auto_submit=auto_submit
-        )
+        try:
+            result: FillResult = handler.fill_form(
+                job=job,
+                resume_pdf=tailored["file_path"],
+                resume_text=resume_text,
+                profile=profile,
+                cover_letter=cover_letter or (lambda: {}),
+                screenshot_path=screenshot_path,
+                auto_submit=auto_submit,
+                html_fixture=html_fixture,
+            )
+        except Exception as e:
+            result = FillResult("FAILED", platform_type, {}, error_message=f"{type(e).__name__}: {e}")
 
         app_id = f"app_{job_id}"
-        applied_date = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-
-        cursor.execute("""
-        INSERT OR REPLACE INTO applications (
-            id, job_id, tailored_resume_id, status, applied_date,
-            screenshot_before_submit_path, fields_filled_json, contact_person,
-            contact_email, skills_targeted, match_score_at_apply,
-            submission_mode, response_status, error_log, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            app_id,
-            job_id,
-            tailored["id"],
-            fill_result.status,
-            applied_date,
-            fill_result.screenshot_path,
-            json.dumps(fill_result.fields_filled),
-            job.get("contact_person", "Hiring Team"),
-            job.get("contact_email", ""),
-            json.dumps(skills_targeted),
-            match_score,
-            fill_result.submission_mode,
-            "No response",
-            fill_result.error_message or "",
-            f"Filled via {platform_type.upper()} handler."
-        ))
-
-        # Update jobs status
-        new_job_status = "APPLIED" if fill_result.status == "SUBMITTED" else "QUEUED"
-        cursor.execute("UPDATE jobs SET status = ? WHERE id = ?", (new_job_status, job_id))
-
+        applied_date = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        conn = get_connection(self.db_path)
+        conn.execute(
+            """INSERT OR REPLACE INTO applications (
+                id, job_id, tailored_resume_id, status, applied_date,
+                screenshot_before_submit_path, fields_filled_json, contact_person,
+                contact_email, skills_targeted, match_score_at_apply,
+                submission_mode, response_status, error_log, notes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (app_id, job_id, tailored["id"], result.status, applied_date, result.screenshot_path,
+             json.dumps(result.fields_filled), job.get("contact_person") or "", job.get("contact_email") or "",
+             tailored.get("skills_added_emphasis") or "[]", tailored.get("match_score"), result.submission_mode,
+             "No response", result.error_message or "", f"{platform_type} handler"),
+        )
+        job_status = {"SUBMITTED": "APPLIED", "FAILED": "FAILED"}.get(result.status, "QUEUED")
+        conn.execute("UPDATE jobs SET status = ? WHERE id = ?", (job_status, job_id))
         conn.commit()
         conn.close()
 
-        log_audit("APPLICATION_EXECUTED", "SUCCESS", job_id, 
-                  f"Status: {fill_result.status} (Mode: {fill_result.submission_mode}) for {job['company']}", 
+        level = {"SUBMITTED": "SUCCESS", "FAILED": "ERROR"}.get(result.status, "WARNING")
+        log_audit("APPLICATION_EXECUTED", level, job_id,
+                  f"{result.status} at {job['company']} ({platform_type}). {result.error_message or ''}".strip(),
                   self.db_path)
-
         return {
             "id": app_id,
             "job_id": job_id,
-            "status": fill_result.status,
+            "status": result.status,
             "applied_date": applied_date,
-            "match_score": match_score,
-            "submission_mode": fill_result.submission_mode,
-            "fields_filled": fill_result.fields_filled,
-            "screenshot_path": fill_result.screenshot_path
+            "match_score": tailored.get("match_score"),
+            "submission_mode": result.submission_mode,
+            "fields_filled": result.fields_filled,
+            "screenshot_path": result.screenshot_path,
+            "error": result.error_message,
         }

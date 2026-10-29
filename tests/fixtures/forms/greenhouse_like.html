@@ -1,0 +1,28 @@
+<!doctype html><html><body>
+<form id="application-form" onsubmit="event.preventDefault(); window.__submitted = {
+  first: document.getElementById('first_name').value,
+  resume: (document.getElementById('resume').files[0] || {}).name,
+  cover: (document.getElementById('cover_letter').files[0] || {}).name,
+  sponsor: document.getElementById('q_sponsor').value,
+  gender: document.getElementById('gender').value,
+  consent: document.getElementById('consent').checked,
+  why: document.getElementById('q_why').value };
+  document.body.innerHTML = '<h1>Thank you for applying!</h1>';">
+  <label for="first_name">First Name *</label><input id="first_name" name="first_name" required>
+  <label for="last_name">Last Name *</label><input id="last_name" name="last_name" required>
+  <label for="email">Email *</label><input id="email" type="email" required>
+  <label for="phone">Phone</label><input id="phone" type="tel">
+  <label for="resume">Resume/CV *</label><input id="resume" type="file" required>
+  <label for="cover_letter">Cover Letter</label><input id="cover_letter" type="file">
+  <label for="q_linkedin">LinkedIn Profile *</label><input id="q_linkedin" required>
+  <label for="q_website">Website</label><input id="q_website">
+  <label for="q_sponsor">Will you now or in the future require visa sponsorship? *</label>
+  <select id="q_sponsor" required><option value="">Select...</option><option>Yes</option><option>No</option></select>
+  <label for="q_auth">Are you legally authorized to work in the United States? *</label>
+  <select id="q_auth" required><option value="">Select...</option><option>Yes</option><option>No</option></select>
+  <label for="q_why">Why are you interested in this role? *</label><textarea id="q_why" required></textarea>
+  <label for="gender">Gender</label>
+  <select id="gender"><option value="">Select...</option><option>Male</option><option>Female</option><option>Decline To Self Identify</option></select>
+  <label><input type="checkbox" id="consent" required> I acknowledge the privacy notice *</label>
+  <button type="submit" id="submit_app">Submit Application</button>
+</form></body></html>
